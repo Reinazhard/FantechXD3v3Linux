@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+*.egg
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local runtime state
+*.log
+default-profile.json
+helios-profile.json
+
+# USBPcap captures: user-supplied evidence, NOT redistributed.
+# See docs/CAPTURE_GUIDE.md for how to obtain/record them.
+captures/*.pcapng
+captures/*.pcap
+!captures/.gitkeep

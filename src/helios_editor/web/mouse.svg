@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 432 356" width="432" height="356">
+  <!-- Helios II XD3v3: 6 physical buttons. 432x356 matches vendor 设备1.png
+       and the Config.ini KeyParam1..6 coordinate space. Our own clean drawing. -->
+  <defs>
+    <linearGradient id="shell" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3f47"/><stop offset="1" stop-color="#1c2026"/>
+    </linearGradient>
+    <radialGradient id="dpiLed" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ff5a2a"/><stop offset="1" stop-color="#7a2408"/>
+    </radialGradient>
+  </defs>
+  <!-- body -->
+  <path d="M120 18 C58 18 26 68 26 172 C26 272 58 334 216 334
+           C374 334 406 272 406 172 C406 68 374 18 312 18 Z"
+        fill="url(#shell)" stroke="#0d0f12" stroke-width="3"/>
+  <!-- L/R click split -->
+  <path d="M216 18 L216 150" stroke="#0d0f12" stroke-width="3"/>
+  <path d="M120 20 C88 20 60 40 48 80 L48 150 L216 150 L216 20 Z"
+        fill="#454b55" stroke="#0d0f12" stroke-width="2"/>
+  <path d="M312 20 C344 20 372 40 384 80 L384 150 L216 150 L216 20 Z"
+        fill="#454b55" stroke="#0d0f12" stroke-width="2"/>
+  <!-- scroll wheel (button 3) -->
+  <rect x="205" y="50" width="22" height="58" rx="11" fill="#111418" stroke="#0a0c0e" stroke-width="2"/>
+  <rect x="209" y="58" width="14" height="42" rx="7" fill="#2b3038"/>
+  <!-- two right-side macro buttons (buttons 4 & 5) -->
+  <!-- two LEFT-side macro buttons (buttons 4 & 5) -->
+  <path d="M182 132 q-30 -8 -44 4 l4 18 q24 -8 44 -4 Z" fill="#2b3038" stroke="#0a0c0e" stroke-width="2"/>
+  <path d="M182 158 q-30 -8 -44 4 l4 18 q24 -8 44 -4 Z" fill="#2b3038" stroke="#0a0c0e" stroke-width="2"/>
+  <!-- bottom DPI cycle button (button 6) + its LED indicator -->
+  <rect x="188" y="292" width="56" height="16" rx="8" fill="#111418" stroke="#0a0c0e" stroke-width="2"/>
+  <circle cx="216" cy="300" r="5" fill="url(#dpiLed)"/>
+  <!-- logo -->
+  <text x="216" y="235" text-anchor="middle" font-family="sans-serif" font-size="13"
+        letter-spacing="2" fill="#6b7280">HELIOS II</text>
+  <!-- USB-C port hint -->
+  <rect x="204" y="14" width="24" height="7" rx="3" fill="#0a0c0e"/>
+</svg>

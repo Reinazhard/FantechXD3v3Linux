@@ -1,0 +1,46 @@
+Helios XD3V3 Mouse Button Editor
+Copyright (C) 2026 Reinazhard
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
+
+------------------------------------------------------------------------
+Third-party materials and reverse-engineering notice
+------------------------------------------------------------------------
+
+This project is an independent, unofficial, clean-room reconstruction of a
+configuration feature for the Fantech Helios II XD3v3 gaming mouse. It is NOT
+affiliated with, endorsed by, or supported by Fantech / Compx. "Fantech",
+"Helios", and "XD3v3" are trademarks of their respective owners and are used
+here solely to identify the compatible hardware.
+
+No vendor firmware, executable, DLL, image, or source code is distributed in
+this repository. Findings were derived by static inspection of a legally
+obtained Windows installer and from user-supplied USB packet captures, and are
+documented in docs/EVIDENCE.md, docs/PROTOCOL.md and docs/HARDWARE.md.
+
+The USBPcap captures under captures/ are user-supplied evidence and are NOT
+redistributed (excluded by .gitignore). Re-record your own captures with the
+official Windows software if you need to reproduce the analysis; see
+docs/CAPTURE_GUIDE.md.
+
+The protocol constants (report framing, checksum, command IDs, flash map,
+startup password words, LED palette, button layout) were recovered from those
+sources. They are facts about wire behaviour, not copied code. Any
+misstatement is ours alone.
+
+Reference / prior art (studied, not copied):
+  * GuessWhatBBQ/FantechX9ThorDriver  - GPL-3.0, userspace Fantech config driver
+  * brunobmello25/fantech-driver      - USB capture / protocol analysis workflow
+
+------------------------------------------------------------------------
+No warranty
+------------------------------------------------------------------------
+
+This program writes configuration records to a USB HID device. Incorrect use
+may leave the device in an unwanted state. It is distributed WITHOUT ANY
+WARRANTY; see the GPL-3.0 license text. The authors are not responsible for
+damage to hardware or data. Bluetooth configuration is not supported because
+that path exposes no vendor HID config interface on Linux.

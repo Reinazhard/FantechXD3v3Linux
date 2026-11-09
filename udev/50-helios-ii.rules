@@ -1,0 +1,9 @@
+# Fantech Helios II XD3v3 — allow non-root HID config access.
+# Install to /etc/udev/rules.d/50-helios-ii.rules, then:
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# Add yourself to plugdev and re-login:  sudo usermod -aG plugdev $USER
+#
+# 0x3554 = Compx (Fantech). PIDs: 0xF536 wired, 0xF535 / 0xF537 2.4 GHz dongles.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3554", ATTRS{idProduct}=="f535", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3554", ATTRS{idProduct}=="f536", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3554", ATTRS{idProduct}=="f537", MODE="0660", GROUP="plugdev", TAG+="uaccess"

@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Helios II XD3v3 — Mouse Editor</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="shell">
+  <header id="topbar">
+    <div class="brand">
+      <span class="logo">H</span>
+      <div>
+        <h1>Helios II <span>XD3v3</span></h1>
+        <div class="sub">Mouse Editor</div>
+      </div>
+    </div>
+    <div id="device-bar">
+      <span id="link-dot" class="dot"></span>
+      <span id="device-label">device…</span>
+      <span id="backend" class="badge">connecting…</span>
+    </div>
+    <div id="status-pills" class="status-pills">
+      <span id="pill-conn" class="pill">connection…</span>
+      <span id="pill-batt" class="pill">battery…</span>
+    </div>
+    <div id="dirty" class="dirty" hidden>unsaved changes</div>
+    <div class="top-actions">
+      <button id="load-btn" class="ghost" title="Reload from device">Reload</button>
+      <button id="apply-btn" class="primary" title="Write settings to device">Apply</button>
+    </div>
+  </header>
+
+  <main id="workspace">
+    <!-- Left: mouse diagram -->
+    <section class="stage">
+      <div class="stage-head">
+        <span class="eyebrow">Button map</span>
+        <span id="selection" class="selection-pill">Select a button</span>
+      </div>
+      <div class="diagram-scroll">
+        <div id="diagram-wrap">
+          <img id="mouse" src="/assets/mouse.svg" alt="Helios II XD3v3 mouse diagram">
+          <div id="hotspots"></div>
+        </div>
+      </div>
+      <p class="stage-hint">Click a numbered hotspot to edit its function. Button 1 (Left) is reserved.</p>
+    </section>
+
+    <!-- Right: tabbed inspector -->
+    <section class="inspector">
+      <nav id="tabs" role="tablist">
+        <button class="tab active" data-tab="buttons" role="tab">Buttons</button>
+        <button class="tab" data-tab="sensor" role="tab">Sensor</button>
+        <button class="tab" data-tab="profiles" role="tab">Profile</button>
+      </nav>
+
+      <div class="tab-scroll">
+        <!-- BUTTONS -->
+        <div class="tab-panel active" id="panel-buttons" role="tabpanel">
+          <div id="editor-empty" class="empty">
+            <div class="empty-icon">⌖</div>
+            <div>No button selected</div>
+            <p>Pick a hotspot on the mouse, or a row below.</p>
+          </div>
+          <div id="editor" hidden>
+            <div class="editor-head">
+              <div>
+                <div class="eyebrow">Assign function</div>
+                <h2 id="editor-title">Button 6</h2>
+              </div>
+              <span id="editor-current" class="current-chip">—</span>
+            </div>
+            <input id="fn-search" class="search" type="search" placeholder="Filter functions…" autocomplete="off">
+            <div id="fn-list" class="fn-list"></div>
+            <div id="sub-wrap" class="sub-wrap" hidden>
+              <div class="eyebrow">Variant</div>
+              <div id="sub-list" class="chip-row"></div>
+            </div>
+          </div>
+          <div class="bindings-head">
+            <span class="eyebrow">All buttons</span>
+            <span id="binding-count" class="count"></span>
+          </div>
+          <div id="bindings-list" class="bindings-list"></div>
+        </div>
+
+        <!-- SENSOR -->
+        <div class="tab-panel" id="panel-sensor" role="tabpanel">
+          <div class="group">
+            <div class="group-title">Polling rate</div>
+            <div id="rate-seg" class="segmented"></div>
+          </div>
+          <div class="group">
+            <div class="group-title">Lift-off distance <span class="dim">LOD</span></div>
+            <div id="lod-seg" class="segmented"></div>
+          </div>
+          <div class="group">
+            <div class="group-title">Click debounce <span id="debounce-val" class="value-badge">8 ms</span></div>
+            <input id="debounce" type="range" min="0" max="20" step="1" value="8">
+            <div class="scale"><span>0 ms</span><span>20 ms</span></div>
+            <p class="warn" id="debounce-warn" hidden>Low values may cause double clicks.</p>
+          </div>
+          <div class="group">
+            <div class="group-title">DPI stages <span class="dim">max 4 · 50–26000, step 50</span></div>
+            <div id="stage-tabs" class="stage-tabs"></div>
+            <div class="dpi-slider-head">
+              <span id="dpi-value" class="dpi-value">1600</span>
+              <span class="dim">DPI</span>
+            </div>
+            <input id="dpi-slider" type="range" min="50" max="26000" step="50" value="1600">
+            <div class="scale"><span>50</span><span>26000</span></div>
+            <div class="dpi-actions">
+              <button id="dpi-save" class="primary">Save to stage</button>
+              <span id="dpi-saved" class="dim" hidden>saved locally · Apply to write to device</span>
+            </div>
+            <p id="dpi-warn" class="warn" hidden></p>
+            <div class="color-head"><span class="eyebrow">Stage LED color</span><span class="dim">unique per stage</span></div>
+            <div id="color-palette" class="palette"></div>
+          </div>
+          <div class="group">
+            <div class="group-title">Sensor tuning</div>
+            <div id="toggles" class="toggles"></div>
+          </div>
+        </div>
+
+        <!-- PROFILE -->
+        <div class="tab-panel" id="panel-profiles" role="tabpanel">
+          <div class="group">
+            <div class="group-title">Profile name</div>
+            <input id="profile-name" class="text-input" type="text">
+          </div>
+          <div class="group">
+            <div class="group-title">Transfer</div>
+            <div class="btn-row">
+              <button id="validate-btn" class="ghost">Validate</button>
+              <button id="export-btn" class="ghost">Export JSON</button>
+              <button id="import-btn" class="ghost">Import JSON</button>
+              <button id="reset-btn" class="ghost danger">Restore defaults</button>
+              <input id="import-file" type="file" accept="application/json" hidden>
+            </div>
+            <pre id="export-out" hidden></pre>
+          </div>
+          <div class="group">
+            <div class="group-title">About</div>
+            <p class="about">
+              Protocol confirmed from USBPcap captures. Writes use the two-password
+              startup unlock with an interleaved poll clock; every flash record is
+              acknowledged before Apply reports success.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="statusbar">
+    <span id="status" class="status">Ready.</span>
+    <span class="foot-note">Reconstructed from Helios_II_XD3V3_Software_V1.0_23121900.setup.exe</span>
+  </footer>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

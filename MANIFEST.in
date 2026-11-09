@@ -1,0 +1,7 @@
+include LICENSE NOTICE README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md SETUP.md
+recursive-include docs *.md
+recursive-include udev *.rules
+recursive-include src/helios_editor/web *.html *.css *.js *.svg
+recursive-include tests *.py
+global-exclude __pycache__ *.py[cod] .DS_Store
+prune captures
