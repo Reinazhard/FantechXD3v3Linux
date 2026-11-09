@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
+import webbrowser
 from pathlib import Path
 
 from .model import ButtonProfile
@@ -30,6 +32,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
     print(f"Backend: {transport.describe()}", flush=True)
     if args.real and not args.dry_run:
         print("NOTE: --real performs confirmed WriteFlashData reports on the device", flush=True)
+    # Best-effort browser launch after the socket is listening. Headless hosts
+    # simply get a no-op; the server still starts.
+    threading.Timer(0.3, lambda: _open_browser(args.host, args.port)).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -40,6 +45,19 @@ def cmd_serve(args: argparse.Namespace) -> int:
         if tr and hasattr(tr.transport, "close"):
             tr.transport.close()
     return 0
+
+
+def _open_browser(host: str, port: int) -> None:
+    try:
+        webbrowser.open(f"http://{host}:{port}/")
+    except Exception:
+        pass
+
+
+def cmd_launch() -> int:
+    """Zero-argument path: identical to ``serve --real`` (real HID device)."""
+    ns = argparse.Namespace(host="127.0.0.1", port=8765, real=True, dry_run=False)
+    return cmd_serve(ns)
 
 
 def cmd_probe(args: argparse.Namespace) -> int:
@@ -95,7 +113,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="helios-editor", description=__doc__)
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")
 
     s = sub.add_parser("serve", help="run the visual editor web UI")
     s.add_argument("--host", default="127.0.0.1")
@@ -116,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
     sh.set_defaults(func=cmd_show)
 
     args = ap.parse_args(argv)
+    if args.cmd is None:
+        return cmd_launch()
     try:
         return args.func(args)
     except (TransportError, ValueError, FileNotFoundError) as exc:

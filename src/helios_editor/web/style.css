@@ -82,8 +82,22 @@ button { min-height: var(--control-height); border-radius: var(--radius-control)
 #shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
 /* ---- top bar ---- */
-#topbar { display: flex; align-items: center; gap: 18px; padding: 0 20px;
-  height: 60px; flex: 0 0 60px; background: #111720; border-bottom: 1px solid var(--line); }
+/* ---- header: two logical layers (device identity / application actions) ----
+   56-60px is a desktop min-height target, NOT a fixed height. flex-wrap lets
+   the action layer move to a second row at narrow widths (no overflow). */
+#topbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--spacing-2) var(--spacing-4);
+  min-height: var(--header-height); flex: 0 0 auto; padding: var(--spacing-2) var(--spacing-5);
+  background: var(--color-surface); border-bottom: 1px solid var(--color-border); }
+.header-identity { display: flex; align-items: center; gap: var(--spacing-3); flex: 1 1 auto; min-width: 0; }
+.header-actions { display: flex; align-items: center; gap: var(--spacing-3); flex: 0 1 auto; }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-text-muted); }
+#conn-state[data-state="connected"] .conn-dot { background: var(--color-success); }
+#conn-state[data-state="connecting"] .conn-dot { background: var(--color-warning); }
+#conn-state[data-state="disconnected"] .conn-dot { background: var(--color-text-muted); }
+#conn-state[data-state="error"] .conn-dot { background: var(--color-error); }
+#conn-state { color: var(--color-text-secondary); white-space: nowrap; }
+.header-actions #tabs { border: none; padding: 0; gap: 2px; }
+.header-actions .tab { padding: 8px 14px; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 210px; }
 .logo { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
   background: linear-gradient(145deg, #ff9445, #e8620a); color: #10151b; font-weight: 800; font-size: 18px; }
@@ -268,5 +282,11 @@ pre { background: var(--surface); border: 1px solid var(--line); padding: 10px; 
   #workspace { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .stage { border-right: none; border-bottom: 1px solid var(--line); }
   #diagram-wrap { transform: scale(.8); }
-  .brand .sub, #device-bar, .foot-note, .status-pills { display: none; }
+  .brand .sub, #device-label { display: none; }
+}
+@media (max-width: 719px) {
+  /* Collapse secondary device info, keep connection state + Apply + pending. */
+  .header-identity #pill-conn, .header-identity #pill-batt, #backend { display: none; }
+  .header-actions { flex: 1 1 100%; }
+  #topbar { row-gap: var(--spacing-2); }
 }

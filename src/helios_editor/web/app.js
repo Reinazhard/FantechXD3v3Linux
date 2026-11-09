@@ -1,16 +1,58 @@
 "use strict";
 
+/* UI_TEXT — single source of user-facing copy. Values are the exact approved
+   contract; no technical/implementation terminology in the default UI. */
+const UI_TEXT = {
+  conn: { connected: "Connected", connecting: "Connecting…",
+          disconnected: "Not connected", error: "Connection problem",
+          hintOffline: "Move your mouse or reconnect the receiver to continue." },
+  transport: { demo: "Demo mode — no device", preview: "Preview mode — changes won't be sent",
+               dongle: "2.4 GHz wireless", wired: "USB cable", unknown: "Wireless" },
+  battery: { ok: (p) => `Battery ${p}%`, na: "Battery unavailable",
+             asleep: "Battery — wake your mouse" },
+  sync: { idle: "Keeping settings in sync", updated: "Updated from your mouse",
+          paused: "Sync paused while you have unsaved changes",
+          error: "Can't reach your mouse — retrying" },
+  pending: { saved: "All changes saved",
+             n: (n) => `${n} pending change${n === 1 ? "" : "s"}`,
+             writing: "Applying changes…", success: "Changes saved to your mouse",
+             error: "Couldn't save changes" },
+  applyError: "Couldn't save settings. Check that your mouse is awake and connected, then try again.",
+  reloadConfirm: "Discard your unsaved changes and reload settings from the mouse?",
+  resetConfirm: "Restore the factory defaults? Your current settings will be replaced.",
+  dpiWarn: "DPI above 3200 hasn't been verified on this mouse. The value will be saved, but we can't confirm the exact hardware behavior.",
+  dpiNumericError: "Enter a DPI between 50 and 26000, in steps of 50.",
+  profileMeta: "For Helios II XD3v3 mice · settings are stored on the device",
+  technicalDetails: "Technical details",
+  reservedHint: "Left click — can't be changed",
+  modeDesc: { 0: "LP — longer battery life", 1: "HP — fastest response" },
+  buttonNames: { 1: "Left click", 2: "Right click", 3: "Scroll wheel",
+                 4: "Side button 1", 5: "Side button 2", 6: "DPI button" },
+};
+
 /* State ---------------------------------------------------------------- */
-let state = null;              // {catalog, profile} from /api/state
-let serverDirty = false;       // authoritative unsaved-state from the server
-let applied = null;            // local snapshot for per-button change dots
+let state = null;              // {catalog, profile, dirty, sync} from /api/state
+let serverDirty = false;       // MIRROR of server dirty; owned by api()/refreshState
+let applied = null;            // local applied-baseline reconstruction (change dots)
 let selectedButton = null;
 let searchTerm = "";
-let pendingFn = null;          // function chosen before picking a variant
+let pendingFn = null;
+let activeStage = 0;
+let sliderDraft = null;        // transient DPI value not yet committed
+let writeStatus = "idle";      // idle|writing|success|error|reconciling (visible result)
+let activeTab = "buttons";     // survives renderAll() refreshes
+
+/* Apply lock/freeze scaffolding (lifecycle implemented in Phase 6). */
+let mutationsFrozen = false;
+let applyInFlight = false;
+const inFlightMutations = new Set();
 
 const $ = (id) => document.getElementById(id);
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
+/* serverDirty is set ONLY here from a SERVER-PROVIDED boolean dirty value,
+   or in refreshState()/watchSync() from a /api/state response. No local
+   inference or optimistic assignment is permitted. */
 async function api(path, body) {
   const opts = body === undefined ? {} : {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -23,24 +65,66 @@ async function api(path, body) {
   return j;
 }
 
+/* Race-safe mutation helper: registers its promise SYNCHRONOUSLY before any
+   async work; rejects while frozen; removes from tracking in finally. */
+function mutate(fn) {
+  if (mutationsFrozen) return Promise.resolve(null);
+  const p = (async () => fn())();
+  inFlightMutations.add(p);
+  p.finally(() => inFlightMutations.delete(p));
+  return p;
+}
+
 function setStatus(msg, kind = "") {
   const el = $("status");
   el.textContent = msg;
   el.className = "status " + kind;
 }
 
-function isDirty() {
-  return serverDirty;
-}
+function isDirty() { return serverDirty; }
+
+/* Single writer for the dirty/discard indicators. */
 function syncDirty() {
   $("dirty").hidden = !isDirty();
   $("discard-btn").hidden = !isDirty();
 }
 
+/* Transient-input guard: valid OR invalid uncommitted numeric text counts, but
+   invalid text never alters the accepted draft. */
+function hasTransientInput() {
+  const el = $("dpi-numeric");
+  if (sliderDraft !== null) return true;
+  if (el && el.value.trim() !== "") {
+    const committed = state && state.profile.settings.dpi_stages[activeStage];
+    if (Number(el.value) !== committed) return true;
+  }
+  return false;
+}
+
 function bindingValue(b) { return b ? (b.param1 | (b.param2 << 8)) : -1; }
 
-/* Pending-changes preview --------------------------------------------- */
-async function refreshPreview() {
+/* Friendly transport label from verified literals. Never render the raw
+   state.catalog.transport string. */
+function friendlyTransport() {
+  const t = state && state.catalog.transport ? state.catalog.transport : "";
+  if (t.includes("Simulated")) return UI_TEXT.transport.demo;
+  if (t.includes("dry_run")) return UI_TEXT.transport.preview;
+  const conn = window.__lastConnection || "";
+  if (conn === "2.4 GHz dongle" || conn === "2.4 GHz dongle (4K)") return UI_TEXT.transport.dongle;
+  if (conn === "Wired USB-C") return UI_TEXT.transport.wired;
+  if (conn === "dry run (no device access)") return UI_TEXT.transport.preview;
+  if (conn === "simulated") return UI_TEXT.transport.demo;
+  return UI_TEXT.transport.unknown;
+}
+
+function isRealHid() {
+  const t = state && state.catalog.transport ? state.catalog.transport : "";
+  return t.includes("HIDTransport") && !t.includes("Simulated") && !t.includes("dry_run");
+}
+
+/* Pending-changes preview: the ONLY authoritative pending source. On failure
+   clear stale rows and show UI_TEXT.pending.error; never present stale data. */
+async function refreshPending() {
   try {
     const p = await api("/api/preview");
     $("preview-count").textContent = p.count;
@@ -57,9 +141,18 @@ async function refreshPreview() {
         list.appendChild(row);
       }
     }
-    $("discard-btn").hidden = !isDirty();
-  } catch (e) { /* preview is informational */ }
+    return p;
+  } catch (e) {
+    console.error(e);
+    $("preview-count").textContent = "—";
+    const list = $("preview-list");
+    list.innerHTML = `<div class="preview-empty">${UI_TEXT.pending.error}</div>`;
+    return null;
+  }
 }
+
+/* Legacy alias used by older call sites; kept until Phase 6 rewires them. */
+async function refreshPreview() { return refreshPending(); }
 
 function bindingLabel(buttonId) {
   const b = state.profile.bindings[String(buttonId)];
@@ -73,7 +166,7 @@ function bindingLabel(buttonId) {
       if (s.type === b.type && s.value === v) return kf.label + " → " + s.label;
     }
   }
-  return `0x${b.type.toString(16)} / 0x${v.toString(16)}`;
+  return "Custom";
 }
 
 function changedButtons() {
@@ -86,13 +179,74 @@ function changedButtons() {
   return out;
 }
 
-/* Tabs ----------------------------------------------------------------- */
+/* Navigation: activeTab is the authority; pure render, no API calls. */
 function initTabs() {
   document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
-    document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
-    document.querySelectorAll(".tab-panel").forEach(p =>
-      p.classList.toggle("active", p.id === "panel-" + t.dataset.tab));
+    activeTab = t.dataset.tab;
+    renderNavigation();
   });
+}
+
+function renderNavigation() {
+  document.querySelectorAll(".tab").forEach(t => {
+    const on = t.dataset.tab === activeTab;
+    t.classList.toggle("active", on);
+    t.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll(".tab-panel").forEach(p =>
+    p.classList.toggle("active", p.id === "panel-" + activeTab));
+}
+
+function switchTab(name) {
+  activeTab = name;
+  renderNavigation();
+}
+
+/* Device identity: ONE authoritative renderer (friendly labels only). */
+function renderDeviceIdentity() {
+  const label = friendlyTransport();
+  $("backend").textContent = label;
+  $("device-label").textContent = label;
+  $("pill-conn").textContent = label;
+  $("link-dot").classList.toggle("sim", !isRealHid());
+}
+
+/* Connection + battery: ONE authoritative renderer for /api/status data.
+   It NEVER writes #status-note (static) and NEVER fabricates telemetry. */
+function renderConnection(st) {
+  if (!st) return;
+  window.__lastConnection = st.connection || "";
+  let connKey;
+  if (st.online) connKey = "connected";
+  else if (st.connection === "simulated") connKey = "disconnected";
+  else connKey = "disconnected";
+  $("conn-state").setAttribute("data-state", connKey);
+  $("conn-text").textContent = UI_TEXT.conn[connKey];
+  const batt = $("pill-batt");
+  if (st.battery_percent !== null && st.battery_percent !== undefined) {
+    batt.textContent = UI_TEXT.battery.ok(st.battery_percent);
+    batt.title = st.battery_mv != null ? `${st.battery_mv} mV` : "";
+    batt.className = "pill " + (st.battery_percent <= 20 ? "err" : st.battery_percent <= 50 ? "warn" : "good");
+  } else {
+    batt.textContent = st.online ? UI_TEXT.battery.na : UI_TEXT.battery.asleep;
+    batt.className = "pill warn";
+  }
+  $("offline-hint").hidden = !!st.online;
+  if (!st.online) $("offline-hint").textContent = UI_TEXT.conn.hintOffline;
+  $("pill-conn").title = "";               // no VID/PID/hidraw/note in tooltip
+  console.log("status note:", st.note);    // diagnostic only, never in DOM
+}
+
+async function refreshConnection() {
+  try {
+    const st = await api("/api/status");
+    renderConnection(st);
+    renderDeviceIdentity();
+  } catch (e) {
+    console.error(e);
+    $("conn-state").setAttribute("data-state", "error");
+    $("conn-text").textContent = UI_TEXT.conn.error;
+  }
 }
 
 /* Mouse diagram -------------------------------------------------------- */
@@ -109,7 +263,7 @@ function renderHotspots() {
     d.style.left = h.x + "px";
     d.style.top = h.y + "px";
     d.textContent = h.id;
-    d.title = `Button ${h.id}: ${h.label} — ${bindingLabel(h.id)}`;
+    d.title = `Button ${h.id}: ${UI_TEXT.buttonNames[h.id] || h.label} — ${bindingLabel(h.id)}`;
     d.onclick = () => selectButton(h.id);
     wrap.appendChild(d);
   }
@@ -124,17 +278,12 @@ function renderBindingsList() {
     row.className = "binding-row"
       + (selectedButton === h.id ? " selected" : "")
       + (changed.has(h.id) ? " changed" : "");
-    row.innerHTML = `<span class="num">${h.id}</span><span class="blabel">${h.label}</span>`
+    row.innerHTML = `<span class="num">${h.id}</span><span class="blabel">${UI_TEXT.buttonNames[h.id] || h.label}</span>`
       + `<span class="bval">${bindingLabel(h.id)}</span>`;
     row.onclick = () => { selectButton(h.id); switchTab("buttons"); };
     list.appendChild(row);
   }
   $("binding-count").textContent = `${state.catalog.hotspots.length} buttons`;
-}
-
-function switchTab(name) {
-  const t = document.querySelector(`.tab[data-tab="${name}"]`);
-  if (t) t.click();
 }
 
 /* Button editor -------------------------------------------------------- */
@@ -143,7 +292,7 @@ function selectButton(id) {
   pendingFn = null;
   searchTerm = "";
   const h = state.catalog.hotspots.find(x => x.id === id);
-  $("selection").textContent = `Button ${id} · ${h.label}`;
+  $("selection").textContent = `Button ${id} · ${UI_TEXT.buttonNames[id] || h.label}`;
   $("selection").classList.add("active");
   renderHotspots();
   renderBindingsList();
@@ -159,7 +308,7 @@ function renderEditor() {
   $("editor-empty").hidden = true;
   $("editor").hidden = false;
   const h = state.catalog.hotspots.find(x => x.id === selectedButton);
-  $("editor-title").textContent = `Button ${h.id} — ${h.label}`;
+  $("editor-title").textContent = `Button ${h.id} — ${UI_TEXT.buttonNames[h.id] || h.label}`;
   $("editor-current").textContent = bindingLabel(h.id);
   $("fn-search").value = searchTerm;
   renderFnList();
@@ -210,21 +359,22 @@ function renderSubs() {
 }
 
 async function assign(type, value) {
-  try {
-    const j = await api("/api/binding", { buttonId: selectedButton, type, value });
-    state.profile = j.profile;
-    pendingFn = null;
-    syncDirty();
-    renderAll();
-    refreshPreview();
-    setStatus(`Button ${selectedButton} → ${bindingLabel(selectedButton)}`, "ok");
-  } catch (e) { setStatus(String(e), "err"); }
+  return mutate(async () => {
+    try {
+      const j = await api("/api/binding", { buttonId: selectedButton, type, value });
+      state.profile = j.profile;
+      pendingFn = null;
+      syncDirty();
+      renderAll();
+      refreshPending();
+      setStatus(`Button ${selectedButton} → ${bindingLabel(selectedButton)}`, "ok");
+    } catch (e) { console.error(e); }
+  });
 }
 
 /* Sensor controls ------------------------------------------------------ */
 function renderSensor() {
   const s = state.profile.settings;
-  // segmented polling rate
   const rateSeg = $("rate-seg");
   rateSeg.innerHTML = "";
   for (const r of state.catalog.reportRates) {
@@ -235,7 +385,6 @@ function renderSensor() {
       [...rateSeg.children].forEach(x => x.classList.toggle("active", x === b)));
     rateSeg.appendChild(b);
   }
-  // segmented LOD
   const lodSeg = $("lod-seg");
   lodSeg.innerHTML = "";
   for (const l of state.catalog.lod) {
@@ -246,7 +395,6 @@ function renderSensor() {
       [...lodSeg.children].forEach(x => x.classList.toggle("active", x === b)));
     lodSeg.appendChild(b);
   }
-  // HP / LP sensor mode (flash 0xb9: 0=LP, 1=HP)
   const modeSeg = $("mode-seg");
   modeSeg.innerHTML = "";
   for (const m of (state.catalog.sensorModes || [{value:0,label:"LP"},{value:1,label:"HP"}])) {
@@ -257,18 +405,13 @@ function renderSensor() {
       [...modeSeg.children].forEach(x => x.classList.toggle("active", x === b)));
     modeSeg.appendChild(b);
   }
-  // debounce slider
+  $("mode-desc").textContent = UI_TEXT.modeDesc[s.sensor_mode] || "";
   $("debounce").value = s.debounce_ms;
   $("debounce-val").textContent = s.debounce_ms + " ms";
   $("debounce-warn").hidden = s.debounce_ms >= 4;
-  // DPI stages
   renderDpiStages();
-  // toggles
   renderToggles();
 }
-
-let activeStage = 0;
-let sliderDraft = null;   // value while dragging, not yet saved to a stage
 
 const rgbHex = (c) => "#" + c.map(v => (v & 255).toString(16).padStart(2, "0")).join("");
 
@@ -276,7 +419,6 @@ function renderDpiStages() {
   const s = state.profile.settings;
   const d = state.catalog.dpi;
   if (activeStage >= s.dpi_stages.length) activeStage = 0;
-  // stage tabs, each showing its unique LED color
   const tabs = $("stage-tabs");
   tabs.innerHTML = "";
   s.dpi_stages.forEach((v, i) => {
@@ -288,16 +430,17 @@ function renderDpiStages() {
     b.title = "Click to make this the active DPI stage (staged; Apply to write)";
     b.onclick = async () => {
       activeStage = i; sliderDraft = null;
-      try {
-        const j = await api("/api/dpi-active", { stage: i });
-        state.profile = j.profile; syncDirty(); refreshPreview();
-        setStatus(`Active DPI stage → S${i + 1} (${v} DPI) · Apply to write`, "ok");
-      } catch (e) { setStatus(String(e), "err"); }
-      renderDpiStages();
+      return mutate(async () => {
+        try {
+          const j = await api("/api/dpi-active", { stage: i });
+          state.profile = j.profile; syncDirty(); refreshPending();
+          setStatus(`Active DPI stage → S${i + 1} (${v} DPI) · Apply to write`, "ok");
+        } catch (e) { console.error(e); }
+        renderDpiStages();
+      });
     };
     tabs.appendChild(b);
   });
-  // slider
   const sl = $("dpi-slider");
   sl.min = d.min; sl.max = d.max; sl.step = d.step;
   const shown = sliderDraft !== null ? sliderDraft : s.dpi_stages[activeStage];
@@ -307,11 +450,8 @@ function renderDpiStages() {
   const warn = $("dpi-warn");
   if (shown > d.confirmedMax) {
     warn.hidden = false;
-    warn.textContent = `Above ${d.confirmedMax} DPI the sensor-register encoding is not fully `
-      + `capture-confirmed; the vendor advertises up to ${d.max}. The value is stored in the `
-      + `profile but Apply uses the only observed extended record (3f 3f 55).`;
+    warn.textContent = UI_TEXT.dpiWarn;
   } else { warn.hidden = true; }
-  // palette (14 vendor swatches)
   const pal = $("color-palette");
   pal.innerHTML = "";
   const cur = rgbHex(s.dpi_colors[activeStage]);
@@ -319,44 +459,36 @@ function renderDpiStages() {
     const b = document.createElement("button");
     b.className = "swatch-btn" + (hex.toLowerCase() === cur.toLowerCase() ? " active" : "");
     b.style.background = hex; b.title = hex;
-    b.onclick = async () => {
+    b.onclick = () => mutate(async () => {
       const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
       try {
         const j = await api("/api/dpi-color", { stage: activeStage, rgb });
         state.profile = j.profile; syncDirty(); renderDpiStages();
-        refreshPreview();
+        refreshPending();
         setStatus(`Stage ${activeStage + 1} LED → ${hex}`, "ok");
-      } catch (e) { setStatus(String(e), "err"); }
-    };
+      } catch (e) { console.error(e); }
+    });
     pal.appendChild(b);
   });
 }
 
 function initDpiControls() {
   const sl = $("dpi-slider");
-  // Live drag: update the readout only; do NOT spam the device.
   sl.oninput = () => {
     sliderDraft = Number(sl.value);
     $("dpi-value").textContent = sliderDraft;
     $("dpi-saved").hidden = false;
-    const w = $("dpi-warn"), d = state.catalog.dpi;
-    if (sliderDraft > d.confirmedMax) {
-      w.hidden = false;
-      w.textContent = `Above ${d.confirmedMax} DPI the register encoding is not fully capture-confirmed `
-        + `(vendor max ${d.max}); Apply will use the observed extended record.`;
-    } else { w.hidden = true; }
   };
-  // Save to the active stage on release / explicit button.
-  const commit = async () => {
+  const commit = () => mutate(async () => {
     if (sliderDraft === null) return;
     const dpi = Math.round(sliderDraft / state.catalog.dpi.step) * state.catalog.dpi.step;
     try {
       const j = await api("/api/dpi", { stage: activeStage, dpi });
       state.profile = j.profile; sliderDraft = null; syncDirty(); renderDpiStages();
-      refreshPreview();
+      refreshPending();
       setStatus(`Stage ${activeStage + 1} → ${dpi} DPI (Apply to write)`, "ok");
-    } catch (e) { setStatus(String(e), "err"); }
-  };
+    } catch (e) { console.error(e); }
+  });
   sl.onchange = commit;
   $("dpi-save").onclick = commit;
 }
@@ -387,138 +519,145 @@ function renderToggles() {
   }
 }
 
-/* Patch a single settings key WITHOUT rebuilding the whole DOM ----------- */
 async function patchSettings(patch, kind, uiUpdate) {
-  Object.assign(state.profile.settings, patch);
-  if (uiUpdate) uiUpdate();
-  if (kind === "debounce") {
-    $("debounce-val").textContent = state.profile.settings.debounce_ms + " ms";
-    $("debounce-warn").hidden = state.profile.settings.debounce_ms >= 4;
-  }
-  syncDirty();
-  try {
-    const j = await api("/api/settings", patch);
-    state.profile = j.profile;
+  return mutate(async () => {
+    Object.assign(state.profile.settings, patch);
+    if (uiUpdate) uiUpdate();
+    if (kind === "debounce") {
+      $("debounce-val").textContent = state.profile.settings.debounce_ms + " ms";
+      $("debounce-warn").hidden = state.profile.settings.debounce_ms >= 4;
+    }
     syncDirty();
-    refreshPreview();
-  } catch (e) { setStatus(String(e), "err"); }
+    try {
+      const j = await api("/api/settings", patch);
+      state.profile = j.profile;
+      syncDirty();
+      refreshPending();
+    } catch (e) { console.error(e); }
+  });
 }
 
 /* Profile tab ---------------------------------------------------------- */
 function renderProfileTab() {
-  $("profile-name").value = state.profile.name;
+  const el = $("profile-name");
+  if (el) el.value = state.profile.name;
 }
 
-/* Render everything (only on structural changes) ------------------------ */
+/* Static status-note set ONCE at init: the profileMeta literal claims on-device
+   storage, false for simulated/dry-run, so gate on a real HID transport. */
+function initStatusNote() {
+  const el = $("status-note");
+  if (!el) return;
+  if (isRealHid()) el.textContent = UI_TEXT.profileMeta;
+  else { el.textContent = ""; el.hidden = true; }
+}
+
+/* Render everything (structural changes only). NO /api/* calls here:
+   refreshConnection()/refreshPending() are explicit, called by init/watchSync.
+   Preserves activeTab and sliderDraft; syncDirty() is the single dirty writer. */
 function renderAll() {
-  $("backend").textContent = state.catalog.transport;
-  const real = !state.catalog.transport.startsWith("Simulated");
-  const dry = state.catalog.transport.includes("dry_run");
-  $("device-label").textContent = real
-    ? (dry ? "Helios II · dry run (no writes)" : "Helios II · connected")
-    : "simulated device";
-  $("link-dot").classList.toggle("sim", !real || dry);
+  renderDeviceIdentity();
+  renderNavigation();
   renderHotspots();
   renderBindingsList();
   renderEditor();
   renderSensor();
   renderProfileTab();
   syncDirty();
-  renderStatus();
-  refreshPreview();
 }
 
-async function renderStatus() {
-  try {
-    const st = await api("/api/status");
-    const conn = $("pill-conn");
-    conn.textContent = st.connection || "unknown";
-    conn.className = "pill " + (st.online ? "good" : "warn");
-    conn.title = st.hidraw ? `VID ${st.vid?.toString(16)} PID ${st.pid?.toString(16)} · ${st.hidraw}` : "";
-    const batt = $("pill-batt");
-    if (st.battery_percent !== null && st.battery_percent !== undefined) {
-      batt.textContent = `🔋 ${st.battery_percent}% · ${st.battery_mv} mV`;
-      batt.className = "pill " + (st.battery_percent <= 20 ? "err" : st.battery_percent <= 50 ? "warn" : "good");
-    } else {
-      batt.textContent = st.online ? "battery n/a" : "battery · mouse asleep?";
-      batt.className = "pill warn";
-    }
-    const note = st.note || "";
-    conn.title = (conn.title ? conn.title + " · " : "") + note;
-    batt.title = note;
-    // Dedicated status line for the connectivity caveat
-    let line = document.getElementById("status-note");
-    if (!line) {
-      line = document.createElement("div");
-      line.id = "status-note"; line.className = "status-note";
-      document.querySelector("#panel-profiles .about").before(line);
-    }
-    line.textContent = note;
-  } catch (e) { /* status is informational */ }
-}
-
+/* Reload the authoritative state. applied is reconstructed from the returned
+   profile ONLY when dirty === false; when dirty === true retain the baseline. */
 async function refreshState() {
-  state = await api("/api/state");
-  serverDirty = state.dirty;
-  applied = clone(state.profile);
-  activeStage = state.profile.settings.active_dpi_index;
+  const fresh = await api("/api/state");
+  state = fresh;
+  serverDirty = fresh.dirty;
+  if (fresh.dirty === false) applied = clone(fresh.profile);
+  activeStage = fresh.profile.settings.active_dpi_index;
   sliderDraft = null;
   renderAll();
-  setStatus("Ready.", "");
+  return fresh;
 }
 
 /* Actions -------------------------------------------------------------- */
+/* Full frozen-lifecycle apply() is implemented in Phase 6. Phase 2 keeps the
+   current behavior but removes raw exception text / record-ack claims. */
 async function apply() {
+  if (applyInFlight) return;
+  applyInFlight = true;
+  mutationsFrozen = true;
+  writeStatus = "writing";
   $("apply-btn").disabled = true;
-  setStatus("Applying to device…", "");
+  setStatus(UI_TEXT.pending.writing, "");
+  let writeSucceeded = false, reconcileOk = false;
   try {
-    const before = await api("/api/preview");
-    await api("/api/apply", {});
-    applied = clone(state.profile);
-    syncDirty();
-    refreshPreview();
-    const real = !state.catalog.transport.startsWith("Simulated");
-    setStatus(real
-      ? `Applied · ${before.count} record${before.count === 1 ? "" : "s"} acknowledged by device`
-      : `Applied (simulated) · ${before.count} record${before.count === 1 ? "" : "s"}`, "ok");
-  } catch (e) {
-    setStatus("Apply failed: " + String(e), "err");
-    syncDirty();  // keep unsaved-changes badge visible on failure
-    refreshPreview();
+    try {
+      await api("/api/apply", {});
+      writeSucceeded = true;
+    } catch (e) {
+      console.error(e);
+    }
+    if (writeSucceeded) {
+      try {
+        await refreshState();
+        reconcileOk = (await refreshPending()) !== null;
+      } catch (e) { console.error(e); }
+    }
+    if (writeSucceeded && !reconcileOk) {
+      writeStatus = "reconciling";
+      setStatus(UI_TEXT.pending.error, "err");
+    } else if (!writeSucceeded) {
+      writeStatus = "error";
+      setStatus(UI_TEXT.applyError, "err");
+    } else {
+      writeStatus = "success";
+      setStatus(isRealHid() ? UI_TEXT.pending.success : UI_TEXT.pending.saved, "ok");
+      setTimeout(() => { if (writeStatus === "success") { writeStatus = "idle"; } }, 3000);
+    }
   } finally {
+    applyInFlight = false;
+    mutationsFrozen = false;
     $("apply-btn").disabled = false;
+    syncDirty();
   }
 }
 
 function initActions() {
   $("apply-btn").onclick = apply;
-  $("discard-btn").onclick = async () => {
+  $("discard-btn").onclick = () => mutate(async () => {
     try {
       const j = await api("/api/discard", {});
-      state.profile = j.profile; applied = clone(j.profile); serverDirty = false;
+      state.profile = j.profile; applied = clone(j.profile);
       renderAll(); setStatus("Draft discarded.", "ok");
-    } catch (e) { setStatus(String(e), "err"); }
-  };
-  $("load-btn").onclick = async () => {
-    if (isDirty() && !window.confirm("Discard unsaved changes and reload from device?")) {
+    } catch (e) { console.error(e); }
+  });
+  $("load-btn").onclick = () => mutate(async () => {
+    if (isDirty() && !window.confirm(UI_TEXT.reloadConfirm)) {
       setStatus("Reload skipped (unsaved draft kept).", "");
       return;
     }
-    try { const j = await api("/api/load", {}); state.profile = j.profile; applied = clone(j.profile);
-      serverDirty = false; renderAll(); setStatus("Reloaded from device.", "ok"); }
-    catch (e) { setStatus(String(e), "err"); }
+    try {
+      const j = await api("/api/load", {});
+      state.profile = j.profile; applied = clone(j.profile);
+      renderAll(); setStatus("Reloaded from device.", "ok");
+    } catch (e) { console.error(e); }
+  });
+  const vb = $("validate-btn");
+  if (vb) vb.onclick = async () => {
+    try {
+      const j = await api("/api/validate", {});
+      console.error(j.errors.length ? j.errors : "profile valid");
+    } catch (e) { console.error(e); }
   };
-  $("validate-btn").onclick = async () => {
-    const j = await api("/api/validate", {});
-    setStatus(j.errors.length ? j.errors.join("; ") : "Profile valid.", j.errors.length ? "err" : "ok");
-  };
-  $("reset-btn").onclick = async () => {
-    const j = await api("/api/reset", {}); state.profile = j.profile;
-    renderAll(); setStatus("Restored defaults (not yet applied).", "ok");
-  };
+  $("reset-btn").onclick = () => mutate(async () => {
+    try {
+      const j = await api("/api/reset", {}); state.profile = j.profile;
+      renderAll(); setStatus("Restored defaults (not yet applied).", "ok");
+    } catch (e) { console.error(e); }
+  });
   $("export-btn").onclick = async () => {
     try {
-      const j = await api("/api/export");   // GET route
+      const j = await api("/api/export");
       const text = JSON.stringify(j, null, 2);
       const pre = $("export-out");
       pre.hidden = false; pre.textContent = text;
@@ -526,58 +665,72 @@ function initActions() {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob); a.download = "helios-profile.json";
       a.click(); URL.revokeObjectURL(a.href);
-      setStatus(`Exported ${state.profile.name}.json`, "ok");
-    } catch (e) { setStatus(String(e), "err"); }
+      console.log("export ok");
+    } catch (e) { console.error(e); }
   };
   $("import-btn").onclick = () => $("import-file").click();
   $("import-file").onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    try { const j = await api("/api/import", JSON.parse(await f.text()));
-      state.profile = j.profile; renderAll(); setStatus("Imported (not yet applied).", "ok"); }
-    catch (err) { setStatus(String(err), "err"); }
+    try {
+      const j = await api("/api/import", JSON.parse(await f.text()));
+      state.profile = j.profile; renderAll(); refreshPending();
+      console.log("import ok");
+    } catch (err) { console.error(err); }
   };
-  $("profile-name").onchange = async (e) => {
-    const copy = clone(state.profile); copy.name = e.target.value;
+  const pn = $("profile-name");
+  if (pn) pn.onchange = () => mutate(async () => {
+    const copy = clone(state.profile); copy.name = pn.value;
     try { const j = await api("/api/import", copy); state.profile = j.profile; syncDirty(); }
-    catch (err) { setStatus(String(err), "err"); }
-  };
-  // live controls (no re-render)
+    catch (err) { console.error(err); }
+  });
   $("fn-search").oninput = (e) => { searchTerm = e.target.value; renderFnList(); };
   $("debounce").oninput = (e) => patchSettings({ debounce_ms: Number(e.target.value) }, "debounce");
   initTabs();
   initDpiControls();
-  // Automated robust sync: device -> server, never clobbers a draft.
-  // Server-side background sync does the device polling (no tab required).
-  // The client only watches a heartbeat; when the generation changes it pulls
-  // the merged state. The server merges volatile fields (hardware DPI cycle)
-  // WITHOUT discarding the user's draft, so this never clobbers edits.
-  const syncNote = document.createElement("span");
-  syncNote.id = "sync-note"; syncNote.className = "sync-note"; syncNote.textContent = "auto-sync on";
-  document.getElementById("statusbar")?.appendChild(syncNote);
+
+  /* beforeunload only while there are unsaved/transient changes. */
+  const beforeUnload = (ev) => {
+    if (isDirty() || hasTransientInput()) { ev.preventDefault(); ev.returnValue = ""; }
+  };
+  const updateBeforeUnload = () => {
+    window.removeEventListener("beforeunload", beforeUnload);
+    if (isDirty() || hasTransientInput()) window.addEventListener("beforeunload", beforeUnload);
+  };
+  window.__updateBeforeUnload = updateBeforeUnload;
+  setInterval(updateBeforeUnload, 500);
+
+  /* Background sync heartbeat: GET only; preserves draft + applied. */
+  const syncNote = $("sync-note");
   let lastGen = -1;
   const watchSync = async () => {
     try {
       const st = await api("/api/sync-status");
-      syncNote.textContent = "auto-sync: " + (st.message || "on");
+      syncNote.textContent = st.message ? UI_TEXT.sync.idle : UI_TEXT.sync.error;
       if (st.generation !== lastGen) {
         lastGen = st.generation;
         const fresh = await api("/api/state");
-        // Keep the applied baseline: /api/state may contain a draft. Only
-        // the merged volatile fields (e.g. hardware DPI cycle) should update.
         state = fresh; serverDirty = fresh.dirty;
-        renderAll();   // reflects hardware DPI cycle in the stage selection
+        if (writeStatus === "reconciling") { writeStatus = "idle"; }
+        renderAll();
+        refreshPending();
       }
-    } catch (e) { syncNote.textContent = "auto-sync: reconnecting"; }
+    } catch (e) {
+      console.error(e);
+      syncNote.textContent = UI_TEXT.sync.error;
+    }
   };
   setInterval(watchSync, 1500);
   setTimeout(watchSync, 1200);
-  // poll live device status every 15 s
-  setInterval(renderStatus, 15000);
+  setInterval(refreshConnection, 15000);
 }
 
 async function init() {
   initActions();
   await refreshState();
+  initStatusNote();
+  await refreshConnection();
+  await refreshPending();
+  setStatus("Ready.", "");
 }
 
-init().catch(e => setStatus("Init failed: " + String(e), "err"));
+init().catch(e => { console.error(e); setStatus(UI_TEXT.conn.error, "err"); });

@@ -37,6 +37,7 @@ dev = ["pytest>=7", "build>=1"]
 
 [project.scripts]
 helios-editor = "helios_editor.cli:main"
+punktech = "helios_editor.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/Reinazhard/FantechXD3v3Linux"

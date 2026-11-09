@@ -9,27 +9,37 @@
 <body>
 <div id="shell">
   <header id="topbar">
-    <div class="brand">
-      <span class="logo">H</span>
-      <div>
-        <h1>Helios II <span>XD3v3</span></h1>
-        <div class="sub">Mouse Editor</div>
+    <!-- Device identity layer: brand, connection state, friendly transport, battery -->
+    <div class="header-identity">
+      <div class="brand">
+        <span class="logo">H</span>
+        <div>
+          <h1>Helios II <span>XD3v3</span></h1>
+          <div class="sub">Mouse Editor</div>
+        </div>
       </div>
+      <span id="conn-state" class="status-indicator" aria-live="polite">
+        <span class="conn-dot" aria-hidden="true"></span><span id="conn-text">Connecting…</span>
+      </span>
+      <span id="link-dot" class="dot" hidden></span>
+      <span id="device-label" class="dim" hidden></span>
+      <span id="backend" class="badge">Connecting…</span>
+      <span id="pill-conn" class="pill">Wireless</span>
+      <span id="pill-batt" class="pill">Battery unavailable</span>
     </div>
-    <div id="device-bar">
-      <span id="link-dot" class="dot"></span>
-      <span id="device-label">device…</span>
-      <span id="backend" class="badge">connecting…</span>
-    </div>
-    <div id="status-pills" class="status-pills">
-      <span id="pill-conn" class="pill">connection…</span>
-      <span id="pill-batt" class="pill">battery…</span>
-    </div>
-    <div id="dirty" class="dirty" hidden>unsaved changes</div>
-    <div class="top-actions">
-      <button id="load-btn" class="ghost" title="Reload from device">Reload</button>
-      <button id="discard-btn" class="ghost" title="Discard unsaved changes" hidden>Discard</button>
-      <button id="apply-btn" class="primary" title="Write settings to device">Apply</button>
+    <!-- Application action / navigation layer -->
+    <div class="header-actions">
+      <nav id="tabs" role="tablist" aria-label="Editor sections">
+        <button id="tab-buttons" class="tab active" data-tab="buttons" role="tab" aria-selected="true" aria-controls="panel-buttons">Buttons</button>
+        <button id="tab-sensor" class="tab" data-tab="sensor" role="tab" aria-selected="false" aria-controls="panel-sensor">Sensor</button>
+        <button id="tab-profiles" class="tab" data-tab="profiles" role="tab" aria-selected="false" aria-controls="panel-profiles">Profile</button>
+      </nav>
+      <div id="dirty" class="dirty" hidden>unsaved changes</div>
+      <div class="top-actions">
+        <button id="load-btn" class="ghost" title="Reload from mouse">Reload</button>
+        <button id="discard-btn" class="ghost" title="Discard unsaved changes" hidden>Discard</button>
+        <button id="apply-btn" class="primary" title="Write settings to device">Apply</button>
+      </div>
     </div>
   </header>
 
@@ -51,15 +61,9 @@
 
     <!-- Right: tabbed inspector -->
     <section class="inspector">
-      <nav id="tabs" role="tablist">
-        <button class="tab active" data-tab="buttons" role="tab">Buttons</button>
-        <button class="tab" data-tab="sensor" role="tab">Sensor</button>
-        <button class="tab" data-tab="profiles" role="tab">Profile</button>
-      </nav>
-
       <div class="tab-scroll">
         <!-- BUTTONS -->
-        <div class="tab-panel active" id="panel-buttons" role="tabpanel">
+        <div class="tab-panel active" id="panel-buttons" role="tabpanel" aria-labelledby="tab-buttons">
           <div id="editor-empty" class="empty">
             <div class="empty-icon">⌖</div>
             <div>No button selected</div>
@@ -73,6 +77,7 @@
               </div>
               <span id="editor-current" class="current-chip">—</span>
             </div>
+            <label class="sr-only" for="fn-search">Filter functions</label>
             <input id="fn-search" class="search" type="search" placeholder="Filter functions…" autocomplete="off">
             <div id="fn-list" class="fn-list"></div>
             <div id="sub-wrap" class="sub-wrap" hidden>
@@ -88,7 +93,7 @@
         </div>
 
         <!-- SENSOR -->
-        <div class="tab-panel" id="panel-sensor" role="tabpanel">
+        <div class="tab-panel" id="panel-sensor" role="tabpanel" aria-labelledby="tab-sensor">
           <div class="group">
             <div class="group-title">Pending changes <span id="preview-count" class="value-badge">0</span></div>
             <p class="dim" style="margin:0 0 8px">Exactly what Apply will write to the device (changed records only).</p>
@@ -105,10 +110,11 @@
           <div class="group">
             <div class="group-title">Sensor mode <span class="dim">HP / LP</span></div>
             <div id="mode-seg" class="segmented"></div>
-            <p class="dim" style="margin:8px 0 0">HP = high performance, LP = low power (vendor <code>customComboBox_ModeSelect</code>).</p>
+            <p id="mode-desc" class="dim" style="margin:8px 0 0"></p>
           </div>
           <div class="group">
             <div class="group-title">Click debounce <span id="debounce-val" class="value-badge">8 ms</span></div>
+            <label class="sr-only" for="debounce">Click debounce</label>
             <input id="debounce" type="range" min="0" max="20" step="1" value="8">
             <div class="scale"><span>0 ms</span><span>20 ms</span></div>
             <p class="warn" id="debounce-warn" hidden>Low values may cause double clicks.</p>
@@ -120,6 +126,7 @@
               <span id="dpi-value" class="dpi-value">1600</span>
               <span class="dim">DPI</span>
             </div>
+            <label class="sr-only" for="dpi-slider">DPI value</label>
             <input id="dpi-slider" type="range" min="50" max="26000" step="50" value="1600">
             <div class="scale"><span>50</span><span>26000</span></div>
             <div class="dpi-actions">
@@ -137,7 +144,7 @@
         </div>
 
         <!-- PROFILE -->
-        <div class="tab-panel" id="panel-profiles" role="tabpanel">
+        <div class="tab-panel" id="panel-profiles" role="tabpanel" aria-labelledby="tab-profiles">
           <div class="group">
             <div class="group-title">Profile name</div>
             <input id="profile-name" class="text-input" type="text">
@@ -155,11 +162,8 @@
           </div>
           <div class="group">
             <div class="group-title">About</div>
-            <p class="about">
-              Protocol confirmed from USBPcap captures. Writes use the two-password
-              startup unlock with an interleaved poll clock; every flash record is
-              acknowledged before Apply reports success.
-            </p>
+            <p id="status-note" class="status-note"></p>
+            <p id="offline-hint" class="status-note" hidden></p>
           </div>
         </div>
       </div>
@@ -167,8 +171,8 @@
   </main>
 
   <footer id="statusbar">
-    <span id="status" class="status">Ready.</span>
-    <span class="foot-note">Reconstructed from Helios_II_XD3V3_Software_V1.0_23121900.setup.exe</span>
+    <span id="status" class="status" aria-live="polite">Ready.</span>
+    <span id="sync-note" class="sync-note"></span>
   </footer>
 </div>
 <script src="/static/app.js"></script>
