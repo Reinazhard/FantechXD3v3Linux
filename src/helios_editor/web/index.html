@@ -79,11 +79,15 @@
             </div>
             <label class="sr-only" for="fn-search">Filter functions</label>
             <input id="fn-search" class="search" type="search" placeholder="Filter functions…" autocomplete="off">
+            <div id="button-categories" class="radio-group" role="group" aria-label="Function categories"></div>
             <div id="fn-list" class="fn-list"></div>
-            <div id="sub-wrap" class="sub-wrap" hidden>
+            <details id="advanced-accordion" class="accordion" hidden>
+              <summary id="advanced-summary">Advanced options</summary>
+              <div id="sub-wrap" class="sub-wrap">
               <div class="eyebrow">Variant</div>
               <div id="sub-list" class="chip-row"></div>
-            </div>
+              </div>
+            </details>
           </div>
           <div class="bindings-head">
             <span class="eyebrow">All buttons</span>

@@ -39,6 +39,7 @@ let searchTerm = "";
 let pendingFn = null;
 let activeStage = 0;
 let sliderDraft = null;        // transient DPI value not yet committed
+let categoryFilter = null;     // active function-category filter (Phase 3)
 let writeStatus = "idle";      // idle|writing|success|error|reconciling (visible result)
 let activeTab = "buttons";     // survives renderAll() refreshes
 
@@ -256,15 +257,32 @@ function renderHotspots() {
   wrap.innerHTML = "";
   for (const h of state.catalog.hotspots) {
     const d = document.createElement("div");
+    const reserved = h.id === 1 || h.fixed === true;
     d.className = "hotspot"
       + (selectedButton === h.id ? " selected" : "")
-      + (h.id === 1 ? " reserved" : "")
+      + (reserved ? " reserved" : "")
       + (changed.has(h.id) ? " changed" : "");
     d.style.left = h.x + "px";
     d.style.top = h.y + "px";
     d.textContent = h.id;
-    d.title = `Button ${h.id}: ${UI_TEXT.buttonNames[h.id] || h.label} — ${bindingLabel(h.id)}`;
-    d.onclick = () => selectButton(h.id);
+    const name = UI_TEXT.buttonNames[h.id] || h.label;
+    d.title = reserved
+      ? UI_TEXT.reservedHint
+      : `Button ${h.id}: ${name} — ${bindingLabel(h.id)}`;
+    if (reserved) {
+      d.tabIndex = -1;
+      d.setAttribute("aria-disabled", "true");
+    } else {
+      d.tabIndex = 0;
+      d.setAttribute("role", "button");
+      d.setAttribute("aria-label", name);
+      d.onclick = () => selectButton(h.id);
+      d.onkeydown = (ev) => {
+        if (ev.key === "Enter" || ev.key === " " || ev.key === "Spacebar") {
+          ev.preventDefault(); selectButton(h.id);
+        }
+      };
+    }
     wrap.appendChild(d);
   }
 }
@@ -291,6 +309,7 @@ function selectButton(id) {
   selectedButton = id;
   pendingFn = null;
   searchTerm = "";
+  categoryFilter = null;
   const h = state.catalog.hotspots.find(x => x.id === id);
   $("selection").textContent = `Button ${id} · ${UI_TEXT.buttonNames[id] || h.label}`;
   $("selection").classList.add("active");
@@ -311,8 +330,45 @@ function renderEditor() {
   $("editor-title").textContent = `Button ${h.id} — ${UI_TEXT.buttonNames[h.id] || h.label}`;
   $("editor-current").textContent = bindingLabel(h.id);
   $("fn-search").value = searchTerm;
+  renderCategories();
   renderFnList();
   renderSubs();
+}
+
+/* Function categories derived from KEY_FUNCTIONS.type; only populated ones
+   are shown. Values mirror catalog KC_* constants (catalog.py:38-48). */
+function categoryOf(type) {
+  switch (type) {
+    case 0x00: return "Disabled";
+    case 0x01: return "Mouse functions";
+    case 0x02: case 0x0A: case 0x08: return "Special functions";
+    case 0x03: case 0x0B: return "System functions";
+    case 0x05: return "Multimedia";
+    case 0x04: case 0x06: case 0x07: return "Keyboard functions";
+    default: return "Other";
+  }
+}
+
+function renderCategories() {
+  const wrap = $("button-categories");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const present = new Set(state.catalog.keyFunctions.map(k => categoryOf(k.type)));
+  for (const cat of ["Mouse functions", "Special functions", "System functions",
+                     "Multimedia", "Keyboard functions", "Disabled", "Other"]) {
+    if (!present.has(cat)) continue;
+    const b = document.createElement("button");
+    b.className = "seg" + (categoryFilter === cat ? " active" : "");
+    b.type = "button";
+    b.textContent = cat;
+    b.setAttribute("aria-pressed", categoryFilter === cat ? "true" : "false");
+    b.onclick = () => {
+      categoryFilter = (categoryFilter === cat) ? null : cat;
+      renderCategories();
+      renderFnList();
+    };
+    wrap.appendChild(b);
+  }
 }
 
 function renderFnList() {
@@ -320,13 +376,16 @@ function renderFnList() {
   const list = $("fn-list");
   list.innerHTML = "";
   const q = searchTerm.toLowerCase();
-  const items = state.catalog.keyFunctions.filter(k => k.label.toLowerCase().includes(q));
+  const items = state.catalog.keyFunctions.filter(k =>
+    k.label.toLowerCase().includes(q) &&
+    (categoryFilter === null || categoryOf(k.type) === categoryFilter));
   if (!items.length) { list.innerHTML = `<div class="dim" style="padding:8px">No match.</div>`; return; }
   for (const kf of items) {
     const active = cur && cur.type === kf.type && (kf.pull === 1 || bindingValue(cur) === kf.param);
     const b = document.createElement("button");
     b.className = "fn-item" + (active ? " active" : "");
-    b.innerHTML = `<span class="fn-type">0x${kf.type.toString(16)}</span>${kf.label}`;
+    b.setAttribute("aria-pressed", active ? "true" : "false");
+    b.textContent = kf.label;
     b.onclick = () => chooseFunction(kf);
     list.appendChild(b);
   }
@@ -344,14 +403,20 @@ function chooseFunction(kf) {
 
 function renderSubs() {
   const wrap = $("sub-wrap"), list = $("sub-list");
-  if (!pendingFn || !pendingFn.subs.length) { wrap.hidden = true; list.innerHTML = ""; return; }
-  wrap.hidden = false;
+  const acc = $("advanced-accordion");
+  if (!pendingFn || !pendingFn.subs.length) {
+    if (acc) acc.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+  if (acc) { acc.hidden = false; acc.open = true; }
   const cur = state.profile.bindings[String(selectedButton)];
   list.innerHTML = "";
   for (const s of pendingFn.subs) {
     const active = cur && cur.type === pendingFn.type && bindingValue(cur) === s.value;
     const b = document.createElement("button");
     b.className = "chip" + (active ? " active" : "");
+    b.setAttribute("aria-pressed", active ? "true" : "false");
     b.textContent = s.label;
     b.onclick = () => assign(pendingFn.type, s.value);
     list.appendChild(b);
