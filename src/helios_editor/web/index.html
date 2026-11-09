@@ -98,53 +98,60 @@
 
         <!-- SENSOR -->
         <div class="tab-panel" id="panel-sensor" role="tabpanel" aria-labelledby="tab-sensor">
-          <div class="group">
-            <div class="group-title">Pending changes <span id="preview-count" class="value-badge">0</span></div>
-            <p class="dim" style="margin:0 0 8px">Exactly what Apply will write to the device (changed records only).</p>
+          <!-- Legacy pending-preview group is moved to the header indicator in Phase 6.
+               These ids are retained here until Phase 6 rewires them. -->
+          <div class="group" id="legacy-preview" hidden>
+            <span id="preview-count" class="value-badge">0</span>
             <div id="preview-list" class="preview-list"></div>
           </div>
-          <div class="group">
-            <div class="group-title">Polling rate</div>
-            <div id="rate-seg" class="segmented"></div>
-          </div>
-          <div class="group">
-            <div class="group-title">Lift-off distance <span class="dim">LOD</span></div>
-            <div id="lod-seg" class="segmented"></div>
-          </div>
-          <div class="group">
-            <div class="group-title">Sensor mode <span class="dim">HP / LP</span></div>
-            <div id="mode-seg" class="segmented"></div>
-            <p id="mode-desc" class="dim" style="margin:8px 0 0"></p>
-          </div>
-          <div class="group">
-            <div class="group-title">Click debounce <span id="debounce-val" class="value-badge">8 ms</span></div>
+
+          <section class="setting-group">
+            <h3 class="group-title">Performance</h3>
+            <div class="setting-row"><span>Polling rate</span><div id="rate-seg" class="segmented"></div></div>
+            <div class="setting-row"><span>Sensor mode</span><div id="mode-seg" class="segmented"></div></div>
+            <p id="mode-desc" class="dim"></p>
+          </section>
+
+          <section class="setting-group">
+            <h3 class="group-title">Tracking</h3>
+            <div class="setting-row"><span>Lift-off distance</span><div id="lod-seg" class="segmented"></div></div>
+          </section>
+
+          <section class="setting-group">
+            <h3 class="group-title">Sensitivity</h3>
+            <div id="stage-tabs" class="stage-tabs"></div>
+            <div class="dpi-slider-head">
+              <span id="dpi-value" class="dpi-value">1600</span><span class="dim">DPI</span>
+            </div>
+            <label class="sr-only" for="dpi-slider">DPI value</label>
+            <input id="dpi-slider" type="range" min="50" max="26000" step="50" value="1600">
+            <label class="sr-only" for="dpi-numeric">DPI numeric value</label>
+            <div class="dpi-numeric-row">
+              <input id="dpi-numeric" class="text-input" type="number" min="50" max="26000" step="50" inputmode="numeric">
+              <button id="dpi-save" class="primary">Save to stage</button>
+            </div>
+            <p id="dpi-numeric-error" class="warn" hidden></p>
+            <span id="dpi-saved" class="dim" hidden>saved locally · Apply to write to device</span>
+            <p id="dpi-warn" class="warn" hidden></p>
+            <div class="color-row">
+              <button id="color-picker-toggle" class="icon-btn" type="button" aria-label="Choose LED color" aria-expanded="false">Choose LED color</button>
+              <div id="color-popover" class="popover" hidden>
+                <div id="color-palette" class="palette"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="setting-group">
+            <h3 class="group-title">Sensor tuning</h3>
+            <div id="toggles" class="toggles"></div>
+            <div class="setting-row">
+              <span>Click debounce <span id="debounce-val" class="value-badge">8 ms</span></span>
+            </div>
             <label class="sr-only" for="debounce">Click debounce</label>
             <input id="debounce" type="range" min="0" max="20" step="1" value="8">
             <div class="scale"><span>0 ms</span><span>20 ms</span></div>
             <p class="warn" id="debounce-warn" hidden>Low values may cause double clicks.</p>
-          </div>
-          <div class="group">
-            <div class="group-title">DPI stages <span class="dim">max 4 · 50–26000, step 50</span></div>
-            <div id="stage-tabs" class="stage-tabs"></div>
-            <div class="dpi-slider-head">
-              <span id="dpi-value" class="dpi-value">1600</span>
-              <span class="dim">DPI</span>
-            </div>
-            <label class="sr-only" for="dpi-slider">DPI value</label>
-            <input id="dpi-slider" type="range" min="50" max="26000" step="50" value="1600">
-            <div class="scale"><span>50</span><span>26000</span></div>
-            <div class="dpi-actions">
-              <button id="dpi-save" class="primary">Save to stage</button>
-              <span id="dpi-saved" class="dim" hidden>saved locally · Apply to write to device</span>
-            </div>
-            <p id="dpi-warn" class="warn" hidden></p>
-            <div class="color-head"><span class="eyebrow">Stage LED color</span><span class="dim">unique per stage</span></div>
-            <div id="color-palette" class="palette"></div>
-          </div>
-          <div class="group">
-            <div class="group-title">Sensor tuning</div>
-            <div id="toggles" class="toggles"></div>
-          </div>
+          </section>
         </div>
 
         <!-- PROFILE -->

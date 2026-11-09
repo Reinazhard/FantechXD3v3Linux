@@ -480,6 +480,43 @@ function renderSensor() {
 
 const rgbHex = (c) => "#" + c.map(v => (v & 255).toString(16).padStart(2, "0")).join("");
 
+/* Strict DPI validation against live catalog constraints. NO rounding, NO
+   clamping. Invalid input never mutates the accepted draft. */
+function validateDpi(raw) {
+  const d = state.catalog.dpi;
+  const text = String(raw).trim();
+  if (text === "") return { ok: false };
+  const v = Number(text);
+  if (!Number.isFinite(v) || Number.isNaN(v) || !Number.isInteger(v)) return { ok: false };
+  if (v < d.min || v > d.max || (v - d.min) % d.step !== 0) return { ok: false };
+  return { ok: true, value: v };
+}
+
+let dpiCommitInFlight = false;
+
+/* ONE commit path, guarded against duplicate POSTs and the mutation freeze.
+   Re-validates immediately before the write. */
+function commitDpi() {
+  if (dpiCommitInFlight || mutationsFrozen) return Promise.resolve(null);
+  if (sliderDraft === null) return Promise.resolve(null);
+  const check = validateDpi(sliderDraft);
+  if (!check.ok) return Promise.resolve(null);
+  const dpi = check.value;
+  dpiCommitInFlight = true;
+  return mutate(async () => {
+    try {
+      const j = await api("/api/dpi", { stage: activeStage, dpi });
+      state.profile = j.profile;
+      sliderDraft = null;
+      syncDirty();
+      renderDpiStages();
+      refreshPending();
+      setStatus(`Stage ${activeStage + 1} → ${dpi} DPI (Apply to write)`, "ok");
+    } catch (e) { console.error(e); }
+    finally { dpiCommitInFlight = false; }
+  });
+}
+
 function renderDpiStages() {
   const s = state.profile.settings;
   const d = state.catalog.dpi;
@@ -489,12 +526,14 @@ function renderDpiStages() {
   s.dpi_stages.forEach((v, i) => {
     const b = document.createElement("button");
     b.className = "stage-tab" + (i === activeStage ? " active" : "");
+    b.setAttribute("aria-pressed", i === activeStage ? "true" : "false");
     const isActive = i === s.active_dpi_index;
     b.innerHTML = `<span class="swatch" style="background:${rgbHex(s.dpi_colors[i])}"></span>`
       + `S${i + 1} · ${v}` + (isActive ? ` <span class="dim">● on</span>` : "");
     b.title = "Click to make this the active DPI stage (staged; Apply to write)";
     b.onclick = async () => {
       activeStage = i; sliderDraft = null;
+      const num0 = $("dpi-numeric"); if (num0) num0.value = "";
       return mutate(async () => {
         try {
           const j = await api("/api/dpi-active", { stage: i });
@@ -512,6 +551,11 @@ function renderDpiStages() {
   sl.value = shown;
   $("dpi-value").textContent = shown;
   $("dpi-saved").hidden = sliderDraft === null;
+  const num = $("dpi-numeric");
+  if (num) { num.min = d.min; num.max = d.max; num.step = d.step; }
+  // PRESERVE in-progress raw numeric value across pure renders; sync to the
+  // accepted value only when there is no transient numeric draft.
+  if (num && sliderDraft === null) num.value = s.dpi_stages[activeStage];
   const warn = $("dpi-warn");
   if (shown > d.confirmedMax) {
     warn.hidden = false;
@@ -524,6 +568,7 @@ function renderDpiStages() {
     const b = document.createElement("button");
     b.className = "swatch-btn" + (hex.toLowerCase() === cur.toLowerCase() ? " active" : "");
     b.style.background = hex; b.title = hex;
+    b.setAttribute("aria-pressed", hex.toLowerCase() === cur.toLowerCase() ? "true" : "false");
     b.onclick = () => mutate(async () => {
       const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
       try {
@@ -539,23 +584,67 @@ function renderDpiStages() {
 
 function initDpiControls() {
   const sl = $("dpi-slider");
+  const num = $("dpi-numeric");
+  const err = $("dpi-numeric-error");
   sl.oninput = () => {
     sliderDraft = Number(sl.value);
     $("dpi-value").textContent = sliderDraft;
     $("dpi-saved").hidden = false;
+    if (num) num.value = sliderDraft;
+    if (err) err.hidden = true;
   };
-  const commit = () => mutate(async () => {
-    if (sliderDraft === null) return;
-    const dpi = Math.round(sliderDraft / state.catalog.dpi.step) * state.catalog.dpi.step;
-    try {
-      const j = await api("/api/dpi", { stage: activeStage, dpi });
-      state.profile = j.profile; sliderDraft = null; syncDirty(); renderDpiStages();
-      refreshPending();
-      setStatus(`Stage ${activeStage + 1} → ${dpi} DPI (Apply to write)`, "ok");
-    } catch (e) { console.error(e); }
+  const onNumeric = () => {
+    const check = validateDpi(num.value);
+    if (!check.ok) {
+      // Invalid: RETAIN raw text; never mutate sliderDraft/#dpi-value/slider/
+      // state.profile; do NOT POST.
+      err.hidden = false;
+      err.textContent = UI_TEXT.dpiNumericError;
+      return;
+    }
+    err.hidden = true;
+    sliderDraft = check.value;
+    $("dpi-value").textContent = check.value;
+    sl.value = check.value;               // slider + numeric + accepted value synced
+    $("dpi-saved").hidden = false;
+    // Enter + blur can both fire change; do not POST again when the value
+    // already equals the committed stage (no duplicate /api/dpi request).
+    const committed = state.profile.settings.dpi_stages[activeStage];
+    if (check.value !== committed) commitDpi();
+    else { sliderDraft = null; $("dpi-saved").hidden = true; }
+  };
+  if (num) {
+    num.onchange = onNumeric;             // Enter / blur fire change once
+    num.onkeydown = (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        // Commit directly; do NOT rely on blur/change (programmatic .value
+        // assignments do not fire change). onNumeric is guarded so Enter +
+        // a later change event cannot produce two POSTs.
+        onNumeric();
+      }
+    };
+  }
+  sl.onchange = commitDpi;
+  $("dpi-save").onclick = () => { if (num) onNumeric(); else commitDpi(); };
+}
+
+/* Compact 14-color popover; /api/dpi-color mapping unchanged. */
+function initColorPopover() {
+  const toggle = $("color-picker-toggle"), pop = $("color-popover");
+  if (!toggle || !pop) return;
+  const close = () => { pop.hidden = true; toggle.setAttribute("aria-expanded", "false"); };
+  toggle.onclick = () => {
+    const open = pop.hidden;
+    pop.hidden = !open;
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  document.addEventListener("click", (ev) => {
+    if (!pop.hidden && !pop.contains(ev.target) && ev.target !== toggle) close();
   });
-  sl.onchange = commit;
-  $("dpi-save").onclick = commit;
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && !pop.hidden) { close(); toggle.focus(); }
+  });
 }
 
 function renderToggles() {
@@ -752,6 +841,7 @@ function initActions() {
   $("debounce").oninput = (e) => patchSettings({ debounce_ms: Number(e.target.value) }, "debounce");
   initTabs();
   initDpiControls();
+  initColorPopover();
 
   /* beforeunload only while there are unsaved/transient changes. */
   const beforeUnload = (ev) => {
