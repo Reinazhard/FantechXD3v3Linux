@@ -79,6 +79,20 @@ body { margin: 0; font-family: var(--font-family); font-size: 13px; font-weight:
   padding: var(--spacing-5); z-index: 50; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
 #confirm-dialog[hidden] { display: none; }
 #confirm-dialog h2 { font-size: 15px; margin: 0 0 var(--spacing-2); }
+.pending-wrap { position: relative; }
+.pending-indicator { font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 20px;
+  white-space: nowrap; background: var(--color-surface-elevated); border: 1px solid var(--color-border); }
+.pending-indicator[data-state="pending"] { color: var(--color-warning); border-color: var(--color-warning); }
+.pending-indicator[data-state="success"] { color: var(--color-success); border-color: var(--color-success); }
+.pending-indicator[data-state="error"], .pending-indicator[data-state="reconciling"] {
+  color: var(--color-error); border-color: var(--color-error); }
+.pending-indicator[data-state="writing"] { color: var(--color-text-secondary); }
+#pending-popover { position: absolute; right: 0; top: calc(100% + var(--spacing-2)); z-index: 20;
+  padding: var(--spacing-3); min-width: 240px; max-height: 320px; overflow-y: auto; }
+#pending-popover[hidden] { display: none; }
+#pending-labels { font-size: 12px; color: var(--color-text-primary); }
+#pending-labels .pending-label { padding: 2px 0; }
+#pending-popover #tech-details { margin-top: var(--spacing-2); }
 #confirm-dialog p { font-size: 13px; color: var(--color-text-secondary); margin: 0 0 var(--spacing-4); }
 .dialog-actions { display: flex; gap: var(--spacing-3); justify-content: flex-end; }
 #export-details { margin-top: var(--spacing-3); }

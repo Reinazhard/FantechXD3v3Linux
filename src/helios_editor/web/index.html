@@ -35,6 +35,17 @@
         <button id="tab-profiles" class="tab" data-tab="profiles" role="tab" aria-selected="false" aria-controls="panel-profiles">Profile</button>
       </nav>
       <div id="dirty" class="dirty" hidden>unsaved changes</div>
+      <div class="pending-wrap">
+        <button id="pending-indicator" class="pending-indicator" type="button" aria-expanded="false" aria-live="polite">All changes saved</button>
+        <div id="pending-popover" class="popover" hidden>
+          <div id="pending-labels"></div>
+          <details id="tech-details" class="accordion">
+            <summary>Technical details</summary>
+            <span id="preview-count" class="value-badge">0</span>
+            <div id="preview-list" class="preview-list"></div>
+          </details>
+        </div>
+      </div>
       <div class="top-actions">
         <button id="load-btn" class="ghost" title="Reload from mouse">Reload</button>
         <button id="discard-btn" class="ghost" title="Discard unsaved changes" hidden>Discard</button>
@@ -98,13 +109,6 @@
 
         <!-- SENSOR -->
         <div class="tab-panel" id="panel-sensor" role="tabpanel" aria-labelledby="tab-sensor">
-          <!-- Legacy pending-preview group is moved to the header indicator in Phase 6.
-               These ids are retained here until Phase 6 rewires them. -->
-          <div class="group" id="legacy-preview" hidden>
-            <span id="preview-count" class="value-badge">0</span>
-            <div id="preview-list" class="preview-list"></div>
-          </div>
-
           <section class="setting-group">
             <h3 class="group-title">Performance</h3>
             <div class="setting-row"><span>Polling rate</span><div id="rate-seg" class="segmented"></div></div>

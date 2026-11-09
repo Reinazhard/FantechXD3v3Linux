@@ -160,17 +160,53 @@ function isRealHid() {
 }
 
 /* Pending-changes preview: the ONLY authoritative pending source. On failure
-   clear stale rows and show UI_TEXT.pending.error; never present stale data. */
+/* Visible pending-indicator text, from writeStatus (visible-result lifecycle).
+   Separated from the lock/freeze lifecycle. */
+function renderPendingText() {
+  const el = $("pending-indicator");
+  if (!el) return;
+  let text, st;
+  switch (writeStatus) {
+    case "writing": text = UI_TEXT.pending.writing; st = "writing"; break;
+    case "success":
+      text = (lastWriteWasRealHid ? UI_TEXT.pending.success : UI_TEXT.pending.saved);
+      st = "success";
+      break;
+    case "error": text = UI_TEXT.pending.error; st = "error"; break;
+    case "reconciling": text = UI_TEXT.pending.error; st = "reconciling"; break;
+    default:
+      text = (lastPreviewCount > 0) ? UI_TEXT.pending.n(lastPreviewCount) : UI_TEXT.pending.saved;
+      st = (lastPreviewCount > 0) ? "pending" : "idle";
+  }
+  el.textContent = text;
+  el.setAttribute("data-state", st);
+}
+
+let lastWriteWasRealHid = false;
+let lastPreviewCount = 0;
+
+/* Pending-changes preview: ONLY authoritative pending source. Drives the
+   compact indicator, the human-readable popover labels, and the collapsed
+   Technical details (raw hex). On failure clear stale rows + show error;
+   never present stale data as current. */
 async function refreshPending() {
   try {
     const p = await api("/api/preview");
+    lastPreviewCount = p.count;
     $("preview-count").textContent = p.count;
+    const labels = $("pending-labels");
+    labels.innerHTML = "";
     const list = $("preview-list");
     list.innerHTML = "";
     if (!p.count) {
-      list.innerHTML = `<div class="preview-empty">No pending changes. Apply would write nothing.</div>`;
+      labels.innerHTML = `<div class="pending-label dim">${UI_TEXT.pending.saved}</div>`;
+      list.innerHTML = `<div class="preview-empty">Apply would write nothing.</div>`;
     } else {
       for (const c of p.changes) {
+        const lab = document.createElement("div");
+        lab.className = "pending-label";
+        lab.textContent = c.label;                 // human-readable only
+        labels.appendChild(lab);
         const row = document.createElement("div");
         row.className = "preview-row";
         row.innerHTML = `<span class="pname">${c.label} <span class="dim">${c.address}</span></span>`
@@ -178,18 +214,39 @@ async function refreshPending() {
         list.appendChild(row);
       }
     }
+    renderPendingText();
     return p;
   } catch (e) {
     console.error(e);
+    lastPreviewCount = 0;
     $("preview-count").textContent = "—";
-    const list = $("preview-list");
-    list.innerHTML = `<div class="preview-empty">${UI_TEXT.pending.error}</div>`;
+    $("preview-list").innerHTML = `<div class="preview-empty">${UI_TEXT.pending.error}</div>`;
+    $("pending-labels").innerHTML = "";
+    renderPendingText();
     return null;
   }
 }
 
-/* Legacy alias used by older call sites; kept until Phase 6 rewires them. */
+/* Legacy alias for any older call sites. */
 async function refreshPreview() { return refreshPending(); }
+
+/* Popover open/close with aria-expanded, Escape, outside click. */
+function initPendingPopover() {
+  const btn = $("pending-indicator"), pop = $("pending-popover");
+  if (!btn || !pop) return;
+  const close = () => { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+  btn.onclick = () => {
+    const open = pop.hidden;
+    pop.hidden = !open;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  document.addEventListener("click", (ev) => {
+    if (!pop.hidden && !pop.contains(ev.target) && ev.target !== btn) close();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && !pop.hidden) { close(); btn.focus(); }
+  });
+}
 
 function bindingLabel(buttonId) {
   const b = state.profile.bindings[String(buttonId)];
@@ -737,6 +794,13 @@ function initStatusNote() {
   else { el.textContent = ""; el.hidden = true; }
 }
 
+/* Set the collapsed-disclosure summaries from the exact UI_TEXT contract. */
+function initTechnicalLabels() {
+  const td = $("tech-details"), ed = $("export-details");
+  if (td && td.querySelector("summary")) td.querySelector("summary").textContent = UI_TEXT.technicalDetails;
+  if (ed && ed.querySelector("summary")) ed.querySelector("summary").textContent = UI_TEXT.technicalDetails;
+}
+
 /* Render everything (structural changes only). NO /api/* calls here:
    refreshConnection()/refreshPending() are explicit, called by init/watchSync.
    Preserves activeTab and sliderDraft; syncDirty() is the single dirty writer. */
@@ -764,41 +828,78 @@ async function refreshState() {
 }
 
 /* Actions -------------------------------------------------------------- */
-/* Full frozen-lifecycle apply() is implemented in Phase 6. Phase 2 keeps the
-   current behavior but removes raw exception text / record-ack claims. */
+/* Apply: WRITE COMPLETION and RECONCILIATION are INDEPENDENT outcomes. The
+   application-level mutation freeze prevents profile mutations during the
+   operation; controls/lock recover IMMEDIATELY in finally while the visible
+   writeStatus result persists for its intended duration. The API has NO
+   snapshot token, so exact snapshot acknowledgement is impossible; a client
+   snapshot is NEVER assigned to applied. */
 async function apply() {
-  if (applyInFlight) return;
+  if (applyInFlight) return;              // duplicate-Apply guard, before any await
   applyInFlight = true;
+  // 2. Commit a valid uncommitted sliderDraft BEFORE freezing.
+  if (sliderDraft !== null) await commitDpi();
+  // 3. Freeze + writing state.
   mutationsFrozen = true;
   writeStatus = "writing";
   $("apply-btn").disabled = true;
+  renderPendingText();
   setStatus(UI_TEXT.pending.writing, "");
-  let writeSucceeded = false, reconcileOk = false;
+  let writeSucceeded = false, reconcileOk = false, reconPreview = null;
   try {
+    // 4. Drain outstanding mutation requests; freeze is already active so no
+    //    new mutation can register.
+    await Promise.all([...inFlightMutations]);
+    // 5. Snapshot for LOGGING ONLY, never for applied.
+    const snapshot = clone(state.profile);
+    console.log("apply snapshot (diagnostic only):", snapshot.settings.dpi_stages);
+    // 6. WRITE (single outcome).
     try {
       await api("/api/apply", {});
       writeSucceeded = true;
     } catch (e) {
       console.error(e);
     }
+    // 7. RECONCILIATION (independent try; a GET failure must NOT be reported
+    //    as a write failure).
     if (writeSucceeded) {
       try {
         await refreshState();
-        reconcileOk = (await refreshPending()) !== null;
+        reconPreview = await refreshPending();
+        reconcileOk = reconPreview !== null;
       } catch (e) { console.error(e); }
     }
-    if (writeSucceeded && !reconcileOk) {
+    // 8. RESULTS by independent outcomes.
+    if (writeSucceeded && reconcileOk) {
+      // Reconstruct applied from /api/state.profile ONLY when dirty === false
+      // (refreshState already did that); retain otherwise.
+      writeStatus = (reconPreview && reconPreview.count === 0) ? "success" : "idle";
+      if (writeStatus === "success") {
+        lastWriteWasRealHid = isRealHid();
+        const realHid = lastWriteWasRealHid;
+        setStatus(realHid ? UI_TEXT.pending.success : UI_TEXT.pending.saved, "ok");
+        renderPendingText();
+        setTimeout(() => {
+          if (writeStatus === "success") { writeStatus = "idle"; renderPendingText(); }
+        }, 3000);
+      }
+    } else if (writeSucceeded && !reconcileOk) {
+      // Reconciliation failure AFTER a successful write: NOT a write failure.
       writeStatus = "reconciling";
       setStatus(UI_TEXT.pending.error, "err");
-    } else if (!writeSucceeded) {
-      writeStatus = "error";
-      setStatus(UI_TEXT.applyError, "err");
+      renderPendingText();
     } else {
-      writeStatus = "success";
-      setStatus(isRealHid() ? UI_TEXT.pending.success : UI_TEXT.pending.saved, "ok");
-      setTimeout(() => { if (writeStatus === "success") { writeStatus = "idle"; } }, 3000);
+      // 9. WRITE FAILURE (POST threw).
+      writeStatus = "error";
+      console.error("apply POST failed");
+      setStatus(UI_TEXT.applyError, "err");
+      renderPendingText();
+      // Refresh pending from authoritative endpoints without changing message.
+      try { await refreshPending(); } catch (e) { console.error(e); }
     }
   } finally {
+    // 10. Lock/freeze end IMMEDIATELY; writeStatus (visible result) is NOT
+    //     assigned here. serverDirty is NOT assigned here.
     applyInFlight = false;
     mutationsFrozen = false;
     $("apply-btn").disabled = false;
@@ -865,6 +966,7 @@ function initActions() {
   initTabs();
   initDpiControls();
   initColorPopover();
+  initPendingPopover();
 
   /* beforeunload only while there are unsaved/transient changes. */
   const beforeUnload = (ev) => {
@@ -906,8 +1008,10 @@ async function init() {
   initActions();
   await refreshState();
   initStatusNote();
+  initTechnicalLabels();
   await refreshConnection();
   await refreshPending();
+  renderPendingText();
   setStatus("Ready.", "");
 }
 
