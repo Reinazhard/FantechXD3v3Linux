@@ -51,6 +51,42 @@ const inFlightMutations = new Set();
 const $ = (id) => document.getElementById(id);
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
+/* Reusable confirmation dialog: focus trap, Escape cancels, Enter confirms,
+   focus restoration to the opener. Returns a Promise<boolean>. */
+function confirmDialog(title, msg) {
+  const dlg = $("confirm-dialog");
+  const okBtn = $("confirm-ok"), cancelBtn = $("confirm-cancel");
+  const opener = document.activeElement;
+  $("confirm-title").textContent = title;
+  $("confirm-body").textContent = msg;
+  dlg.hidden = false;
+  cancelBtn.focus();
+  return new Promise((resolve) => {
+    const finish = (result) => {
+      dlg.hidden = true;
+      dlg.removeEventListener("keydown", onKey);
+      okBtn.onclick = null; cancelBtn.onclick = null;
+      if (opener && opener.focus) opener.focus();
+      resolve(result);
+    };
+    const onKey = (ev) => {
+      if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
+      else if (ev.key === "Enter") {
+        ev.preventDefault();
+        finish(document.activeElement !== cancelBtn);
+      } else if (ev.key === "Tab") {
+        // Simple focus trap between the two dialog buttons.
+        const first = cancelBtn, last = okBtn;
+        if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+        else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+      }
+    };
+    cancelBtn.onclick = () => finish(false);
+    okBtn.onclick = () => finish(true);
+    dlg.addEventListener("keydown", onKey);
+  });
+}
+
 /* serverDirty is set ONLY here from a SERVER-PROVIDED boolean dirty value,
    or in refreshState()/watchSync() from a /api/state response. No local
    inference or optimistic assignment is permitted. */
@@ -692,11 +728,6 @@ async function patchSettings(patch, kind, uiUpdate) {
 }
 
 /* Profile tab ---------------------------------------------------------- */
-function renderProfileTab() {
-  const el = $("profile-name");
-  if (el) el.value = state.profile.name;
-}
-
 /* Static status-note set ONCE at init: the profileMeta literal claims on-device
    storage, false for simulated/dry-run, so gate on a real HID transport. */
 function initStatusNote() {
@@ -716,7 +747,6 @@ function renderAll() {
   renderBindingsList();
   renderEditor();
   renderSensor();
-  renderProfileTab();
   syncDirty();
 }
 
@@ -786,7 +816,7 @@ function initActions() {
     } catch (e) { console.error(e); }
   });
   $("load-btn").onclick = () => mutate(async () => {
-    if (isDirty() && !window.confirm(UI_TEXT.reloadConfirm)) {
+    if (isDirty() && !(await confirmDialog("Reload from mouse?", UI_TEXT.reloadConfirm))) {
       setStatus("Reload skipped (unsaved draft kept).", "");
       return;
     }
@@ -794,27 +824,26 @@ function initActions() {
       const j = await api("/api/load", {});
       state.profile = j.profile; applied = clone(j.profile);
       renderAll(); setStatus("Reloaded from device.", "ok");
+      refreshPending();
     } catch (e) { console.error(e); }
   });
-  const vb = $("validate-btn");
-  if (vb) vb.onclick = async () => {
-    try {
-      const j = await api("/api/validate", {});
-      console.error(j.errors.length ? j.errors : "profile valid");
-    } catch (e) { console.error(e); }
-  };
-  $("reset-btn").onclick = () => mutate(async () => {
+  $("reset-btn").onclick = async () => {
+    if (!(await confirmDialog("Restore defaults?", UI_TEXT.resetConfirm))) return;
+    return mutate(async () => {
     try {
       const j = await api("/api/reset", {}); state.profile = j.profile;
       renderAll(); setStatus("Restored defaults (not yet applied).", "ok");
+      refreshPending();
     } catch (e) { console.error(e); }
-  });
+    });
+  };
   $("export-btn").onclick = async () => {
     try {
       const j = await api("/api/export");
       const text = JSON.stringify(j, null, 2);
       const pre = $("export-out");
       pre.hidden = false; pre.textContent = text;
+      const det = $("export-details"); if (det) det.hidden = false;
       const blob = new Blob([text], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob); a.download = "helios-profile.json";
@@ -831,12 +860,6 @@ function initActions() {
       console.log("import ok");
     } catch (err) { console.error(err); }
   };
-  const pn = $("profile-name");
-  if (pn) pn.onchange = () => mutate(async () => {
-    const copy = clone(state.profile); copy.name = pn.value;
-    try { const j = await api("/api/import", copy); state.profile = j.profile; syncDirty(); }
-    catch (err) { console.error(err); }
-  });
   $("fn-search").oninput = (e) => { searchTerm = e.target.value; renderFnList(); };
   $("debounce").oninput = (e) => patchSettings({ debounce_ms: Number(e.target.value) }, "debounce");
   initTabs();

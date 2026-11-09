@@ -156,26 +156,25 @@
 
         <!-- PROFILE -->
         <div class="tab-panel" id="panel-profiles" role="tabpanel" aria-labelledby="tab-profiles">
-          <div class="group">
-            <div class="group-title">Profile name</div>
-            <input id="profile-name" class="text-input" type="text">
-          </div>
-          <div class="group">
-            <div class="group-title">Transfer</div>
+          <section class="setting-group">
+            <h3 class="group-title">Device</h3>
+            <p class="dim">Helios II XD3v3</p>
+            <p id="status-note" class="status-note"></p>
+            <p id="offline-hint" class="status-note" hidden></p>
+          </section>
+          <section class="setting-group">
+            <h3 class="group-title">Configuration files</h3>
             <div class="btn-row">
-              <button id="validate-btn" class="ghost">Validate</button>
               <button id="export-btn" class="ghost">Export JSON</button>
               <button id="import-btn" class="ghost">Import JSON</button>
               <button id="reset-btn" class="ghost danger">Restore defaults</button>
               <input id="import-file" type="file" accept="application/json" hidden>
             </div>
-            <pre id="export-out" hidden></pre>
-          </div>
-          <div class="group">
-            <div class="group-title">About</div>
-            <p id="status-note" class="status-note"></p>
-            <p id="offline-hint" class="status-note" hidden></p>
-          </div>
+            <details id="export-details" class="accordion" hidden>
+              <summary>Technical details</summary>
+              <pre id="export-out" hidden></pre>
+            </details>
+          </section>
         </div>
       </div>
     </section>
@@ -185,6 +184,15 @@
     <span id="status" class="status" aria-live="polite">Ready.</span>
     <span id="sync-note" class="sync-note"></span>
   </footer>
+</div>
+<!-- Reusable confirmation dialog (focus trap, Escape/Enter, focus restore). -->
+<div id="confirm-dialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" hidden>
+  <h2 id="confirm-title"></h2>
+  <p id="confirm-body"></p>
+  <div class="dialog-actions">
+    <button id="confirm-cancel" class="ghost" type="button">Cancel</button>
+    <button id="confirm-ok" class="primary" type="button">OK</button>
+  </div>
 </div>
 <script src="/static/app.js"></script>
 </body>
