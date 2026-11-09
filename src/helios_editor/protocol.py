@@ -317,3 +317,46 @@ def describe_pid(pid: int) -> str:
         0xF535: "2.4 GHz dongle",
         0xF537: "2.4 GHz dongle (4K)",
     }.get(pid, "unknown")
+
+
+def profile_to_records(profile) -> list[tuple[int, bytes, str]]:
+    """Map a ButtonProfile to ``(flash_addr, value_bytes, label)`` records.
+
+    Single source of truth shared by the writer and the preview diff, so the
+    UI shows exactly what Apply will send. The label is human-readable.
+    """
+    from .model import HOTSPOTS, MAX_DPI_STAGES  # deferred: model imports catalog
+
+    s = profile.settings
+    out: list[tuple[int, bytes, str]] = [
+        (ADDR_REPORT_RATE, report_rate_value(s.report_rate), "Polling rate"),
+        (ADDR_LOD, bytes((s.lod_mm,)), "Lift-off distance"),
+        (ADDR_DEBOUNCE, bytes((s.debounce_ms,)), "Click debounce"),
+        (ADDR_MOTION_SYNC, bytes((int(s.motion_sync),)), "Motion sync"),
+        (ADDR_ANGLE_SNAPPING, bytes((int(s.angle_snapping),)), "Angle snapping"),
+        (ADDR_RIPPLE_CONTROL, bytes((int(s.ripple_control),)), "Ripple control"),
+        (ADDR_SENSOR_MODE, bytes((s.sensor_mode,)), "Sensor mode"),
+        (ADDR_DPI_STAGE_COUNT, bytes((len(s.dpi_stages),)), "DPI stage count"),
+        (ADDR_ACTIVE_DPI_INDEX, bytes((s.active_dpi_index,)), "Active DPI stage"),
+    ]
+    for i in range(MAX_DPI_STAGES):
+        out.append((dpi_stage_address(i), dpi_to_register(s.dpi_stages[i]),
+                    f"DPI stage {i + 1}"))
+        out.append((dpi_color_address(i), bytes(s.dpi_colors[i]),
+                    f"DPI stage {i + 1} LED"))
+    for h in HOTSPOTS:
+        b = profile.bindings[h.id]
+        out.append((keymap_address(h.id), bytes((b.type, b.param1, b.param2)),
+                    f"Button {h.id} ({h.label})"))
+    return out
+
+
+def changed_records(baseline, draft) -> list[tuple[int, bytes, str]]:
+    """Return only the records whose value bytes differ from ``baseline``.
+
+    Used to make Apply delta-only: a single DPI change writes ONE flash record
+    instead of all 23, which is what caused the extreme device lag.
+    """
+    base = {addr: vals for addr, vals, _ in profile_to_records(baseline)}
+    return [(addr, vals, label) for addr, vals, label in profile_to_records(draft)
+            if base.get(addr) != vals]

@@ -175,6 +175,14 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .status-note { font-size: 11px; color: #e0b34b; background: rgba(224,179,75,.08);
   border: 1px solid rgba(224,179,75,.25); border-radius: 8px; padding: 9px 11px;
   margin-bottom: 10px; line-height: 1.45; }
+.preview-list { display: flex; flex-direction: column; gap: 4px; max-height: 190px; overflow-y: auto; }
+.preview-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 11px; }
+.preview-row .pname { color: var(--fg); }
+.preview-row .pvals { font-family: ui-monospace, monospace; font-size: 10px; color: var(--muted); }
+.preview-row .pvals b { color: var(--accent); font-weight: 600; }
+.preview-empty { font-size: 11px; color: var(--dim); padding: 6px 0; }
+.sync-note { font-size: 10px; color: var(--dim); margin-left: auto; }
 .about { font-size: 11px; color: var(--muted); margin: 0; }
 pre { background: var(--surface); border: 1px solid var(--line); padding: 10px; border-radius: 8px;
   max-height: 200px; overflow: auto; font-size: 10px; margin: 12px 0 0; }

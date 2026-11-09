@@ -140,6 +140,8 @@ class MouseSettings:
     motion_sync: bool = False
     angle_snapping: bool = False
     ripple_control: bool = False
+    # customComboBox_ModeSelect: 0000=LP, 0001=HP (0010=Corded, not used here)
+    sensor_mode: int = 0   # 0 = LP, 1 = HP
 
     def __post_init__(self) -> None:
         # Enforce the 4-stage hardware limit; pad/trim defensively on import.
@@ -148,6 +150,8 @@ class MouseSettings:
         self.dpi_colors = [tuple(int(v) & 0xFF for v in c[:3]) for c in self.dpi_colors]
         if not 0 <= self.active_dpi_index < len(self.dpi_stages):
             self.active_dpi_index = 0
+        if self.sensor_mode not in (0, 1):
+            self.sensor_mode = 0
 
     def asdict(self) -> dict:
         d = asdict(self)
@@ -206,6 +210,8 @@ class ButtonProfile:
             errors.append("lod_mm: must be 1 or 2")
         if not (0 <= s.debounce_ms <= 20):
             errors.append("debounce_ms: must be 0..20")
+        if s.sensor_mode not in (0, 1):
+            errors.append("sensor_mode: must be 0 (LP) or 1 (HP)")
         return errors
 
     def set_binding(self, button_id: int, type_: int, value: int) -> None:
@@ -271,6 +277,7 @@ class ButtonProfile:
             motion_sync=s.get("motion_sync", False),
             angle_snapping=s.get("angle_snapping", False),
             ripple_control=s.get("ripple_control", False),
+            sensor_mode=s.get("sensor_mode", 0),
         )
         bindings = {
             int(k): Binding(v["type"], v["param1"], v["param2"],

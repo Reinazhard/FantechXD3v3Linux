@@ -19,8 +19,20 @@ to the device over the Linux `hidraw` HID feature-report interface.
 * **4 DPI stages** (`DPIMaxGrade=4`) with a 50–26000 step-50 drag slider and a
   **unique LED color per stage** from the vendor's 14-color palette.
 * Polling rate, LOD, click debounce, motion sync, angle snapping, ripple
-  control, per-stage DPI/LED — all written to onboard flash with ACK
-  verification (no silent false successes).
+  control, **HP/LP sensor mode**, per-stage DPI/LED — all written to onboard
+  flash with ACK verification (no silent false successes).
+* **DPI cycling from the app**: click a stage tab to make it the active DPI
+  (staged, Apply to write); the bottom hardware button still cycles via its
+  default "DPI Loop" binding.
+* **Preview before Apply**: a "Pending changes" panel lists exactly which
+  flash records Apply will write (old -> new bytes). Apply is **delta-only**:
+  one edit writes one record, a no-op writes nothing — no device lag.
+  Discard reverts the draft.
+* **Automated sync (no Reload needed)**: a server-side background thread
+  polls the device every 2s even with no browser tab open. Pressing the
+  bottom DPI-cycle button updates the web stage selection automatically
+  (device-observed state is MERGED, user drafts are preserved). Manual
+  Reload still asks before discarding a draft.
 * Live connection mode (wired USB-C / 2.4 GHz dongle) and battery % + voltage.
   Bluetooth is reported as **not detectable** (it exposes no vendor HID config
   interface) rather than guessed.
@@ -61,9 +73,9 @@ Open <http://127.0.0.1:8765>. The server binds to `127.0.0.1` by default; use
 `--real` autodetects the config interface by VID/PID `3554:f535` (2.4 GHz
 dongle) or `3554:f536` (wired). It sends only confirmed `WriteFlashData`
 records; the two-password startup unlock and an interleaved poll clock keep
-the firmware servicing commands. Apply reports success only after **every**
-flash record is acknowledged; on a sleeping mouse it fails loudly and keeps
-changes flagged as unsaved.
+the firmware servicing commands. Apply reports success only after **every
+changed** flash record is acknowledged; on a sleeping mouse it fails loudly
+and keeps changes flagged as unsaved. A single-field edit writes one record.
 
 ### CLI examples (installed console script)
 
@@ -100,9 +112,10 @@ python -m pip install pytest
 PYTHONPATH=src python -m pytest tests/ -q
 ```
 
-40 tests cover the encoder (243/243 captured frames reproduced byte-for-byte),
+50 tests cover the encoder (243/243 captured frames reproduced byte-for-byte),
 the corrected hardware contract, the startup unlock, the poll clock, the
-multi-report echo queue, and the HTTP API. No device is needed.
+multi-report echo queue, delta writes, preview, HP/LP mode and auto-sync
+safety. No device is needed.
 
 ## Known limitations
 

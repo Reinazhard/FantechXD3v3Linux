@@ -12,6 +12,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+import threading
+import time
 
 from .catalog import (
     KEY_FUNCTIONS,
@@ -70,6 +72,7 @@ def catalog_payload() -> dict[str, Any]:
             {"value": k, "label": v} for k, v in REPORT_RATES.items()
         ],
         "lod": [{"value": k, "label": v} for k, v in LOD_CHOICES.items()],
+        "sensorModes": [{"value": 0, "label": "LP"}, {"value": 1, "label": "HP"}],
         "transport": None,  # filled by handler
     }
 
@@ -84,6 +87,12 @@ class EditorState:
         except TransportError:
             self.profile = ButtonProfile()
         self.applied = self.profile.to_dict()
+        self._sync_lock = threading.Lock()
+        self._last_sync = 0.0
+        self._sync_failures = 0
+        self._sync_generation = 0        # bumped whenever device state is observed
+        self._sync_message = "starting"
+        self._stop = threading.Event()
 
     def snapshot(self) -> dict[str, Any]:
         cat = catalog_payload()
@@ -92,7 +101,76 @@ class EditorState:
             "catalog": cat,
             "profile": self.profile.to_dict(),
             "dirty": self.profile.to_dict() != self.applied,
+            "sync": {
+                "generation": self._sync_generation,
+                "message": self._sync_message,
+                "failures": self._sync_failures,
+            },
         }
+
+    def have_draft(self) -> bool:
+        return self.profile.to_dict() != self.applied
+
+    def observe_device(self, *, quick: bool = True) -> bool:
+        """Merge device-observed (volatile) state into the CURRENT profile.
+
+        Never discards user-authored draft fields. The hardware DPI-cycle
+        button changes the active DPI stage on the device; we mirror just that
+        one field so the web selection stays in sync. ALWAYS uses a single
+        cheap 0x04 read (a full flash sweep is far too slow for a 2s loop and
+        is reserved for the explicit /api/load path). Returns True on success.
+        """
+        if not self._sync_lock.acquire(blocking=False):
+            return False
+        try:
+            tr = self.transport
+            reader = getattr(tr, "read_active_dpi", None)
+            if reader is None:
+                self._sync_message = "simulated (no device poll)"
+                return False
+            idx = reader()
+            if idx is None:
+                self._sync_failures += 1
+                self._sync_message = "device unavailable (retrying)"
+                return False
+            changed = False
+            if self.profile.settings.active_dpi_index != idx:
+                self.profile.settings.active_dpi_index = idx
+                # Also move the applied baseline so this is not a user edit.
+                self.applied = dict(self.applied)
+                self.applied["settings"] = dict(self.applied["settings"])
+                self.applied["settings"]["active_dpi_index"] = idx
+                changed = True
+                self._sync_message = f"hardware DPI cycle -> stage {idx + 1}"
+            else:
+                self._sync_message = "in sync"
+            if not self.have_draft():
+                self.applied = self.profile.to_dict()
+            if changed:
+                self._sync_generation += 1
+            self._sync_failures = 0
+            self._last_sync = time.monotonic()
+            return True
+        except TransportError as exc:
+            self._sync_failures += 1
+            self._sync_message = f"device unavailable: {exc}"
+            return False
+        finally:
+            self._sync_lock.release()
+
+    def preview(self) -> dict[str, Any]:
+        """Human-readable diff of what Apply will write (delta vs applied)."""
+        from . import protocol as P
+        baseline = ButtonProfile.from_dict(self.applied)
+        records = P.changed_records(baseline, self.profile)
+        base_map = {a: v for a, v, _ in P.profile_to_records(baseline)}
+        changes = [{
+            "label": label,
+            "address": "0x%02x" % addr,
+            "from": base_map.get(addr, b"").hex(),
+            "to": vals.hex(),
+        } for addr, vals, label in records]
+        return {"count": len(changes), "changes": changes}
 
 
 def make_handler(state: EditorState):
@@ -139,6 +217,17 @@ def make_handler(state: EditorState):
             p = urlparse(self.path).path
             if p == "/api/state":
                 self._json(state.snapshot())
+            elif p == "/api/preview":
+                self._json(state.preview())
+            elif p == "/api/sync":
+                self._json(self._sync())
+            elif p == "/api/sync-status":
+                self._json({
+                    "generation": state._sync_generation,
+                    "message": state._sync_message,
+                    "failures": state._sync_failures,
+                    "dirty": state.have_draft(),
+                })
             elif p == "/api/status":
                 getter = getattr(state.transport, "device_status", None)
                 if getter is None:
@@ -155,6 +244,18 @@ def make_handler(state: EditorState):
                 self._file(WEB_DIR / "mouse.svg")
             else:
                 self.send_error(404)
+
+        def _sync(self) -> dict[str, Any]:
+            """Explicit sync (also runs in the background loop).
+
+            Merges device-observed state without clobbering a draft, so a
+            hardware DPI cycle shows up even with unsaved edits.
+            """
+            ok = state.observe_device(quick=True)
+            return {"ok": ok, "generation": state._sync_generation,
+                    "message": state._sync_message,
+                    "profile": state.profile.to_dict(),
+                    "dirty": state.have_draft()}
 
         def do_POST(self) -> None:
             p = urlparse(self.path).path
@@ -173,7 +274,8 @@ def make_handler(state: EditorState):
                 elif p == "/api/settings":
                     s = state.profile.settings
                     for key in ("active_dpi_index", "report_rate", "lod_mm", "debounce_ms",
-                                "motion_sync", "angle_snapping", "ripple_control"):
+                                "motion_sync", "angle_snapping", "ripple_control",
+                                "sensor_mode"):
                         if key in body:
                             setattr(s, key, body[key])
                     if "dpi_stages" in body:
@@ -184,11 +286,25 @@ def make_handler(state: EditorState):
                     state.profile.set_dpi_stage(int(body["stage"]), int(body["dpi"]))
                     self._json({"ok": True, "profile": state.profile.to_dict(),
                                 "dirty": state.profile.to_dict() != state.applied})
+                elif p == "/api/dpi-active":
+                    # Clicking a DPI stage selects it (staged, not applied).
+                    idx = int(body["stage"])
+                    if not 0 <= idx < len(state.profile.settings.dpi_stages):
+                        raise ValueError("DPI stage out of range")
+                    state.profile.settings.active_dpi_index = idx
+                    self._json({"ok": True, "profile": state.profile.to_dict(),
+                                "dirty": state.profile.to_dict() != state.applied})
                 elif p == "/api/dpi-color":
                     rgb = tuple(int(v) for v in body["rgb"])
                     state.profile.set_dpi_color(int(body["stage"]), rgb)
                     self._json({"ok": True, "profile": state.profile.to_dict(),
                                 "dirty": state.profile.to_dict() != state.applied})
+                elif p == "/api/discard":
+                    # Drop the draft, revert to the last applied/loaded state.
+                    state.profile = ButtonProfile.from_dict(state.applied)
+                    self._json({"ok": True, "profile": state.profile.to_dict(), "dirty": False})
+                elif p == "/api/sync":
+                    self._json(self._sync())
                 elif p == "/api/validate":
                     self._json({"errors": state.profile.validate()})
                 elif p == "/api/apply":
@@ -221,6 +337,26 @@ def serve(host: str = "127.0.0.1", port: int = 8765,
           transport: Transport | None = None) -> ThreadingHTTPServer:
     tr = transport or SimulatedTransport()
     state = EditorState(tr)
-    httpd = ThreadingHTTPServer((host, port), make_handler(state))
+    class _Server(ThreadingHTTPServer):
+        daemon_threads = True
+        def server_close(self):
+            if getattr(self, "_sync_stop", None):
+                self._sync_stop.set()
+            super().server_close()
+    httpd = _Server((host, port), make_handler(state))
     httpd.editor_state = state  # type: ignore[attr-defined]
+    # Server-side background sync: runs even with NO browser tab open, so the
+    # web selection follows hardware DPI cycling without pressing Reload.
+    MIN_INTERVAL = 2.0   # fast enough to feel live, cheap (single 0x04 read)
+    def _loop():
+        while not state._stop.wait(MIN_INTERVAL):
+            if state._sync_failures:
+                state._stop.wait(min(2 ** state._sync_failures, 15))
+                if state._stop.is_set():
+                    break
+            state.observe_device(quick=True)
+    bg = threading.Thread(target=_loop, name="helios-sync", daemon=True)
+    httpd._sync_thread = bg  # type: ignore[attr-defined]
+    httpd._sync_stop = state._stop  # type: ignore[attr-defined]
+    bg.start()
     return httpd

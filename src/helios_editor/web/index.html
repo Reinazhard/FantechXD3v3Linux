@@ -28,6 +28,7 @@
     <div id="dirty" class="dirty" hidden>unsaved changes</div>
     <div class="top-actions">
       <button id="load-btn" class="ghost" title="Reload from device">Reload</button>
+      <button id="discard-btn" class="ghost" title="Discard unsaved changes" hidden>Discard</button>
       <button id="apply-btn" class="primary" title="Write settings to device">Apply</button>
     </div>
   </header>
@@ -89,12 +90,22 @@
         <!-- SENSOR -->
         <div class="tab-panel" id="panel-sensor" role="tabpanel">
           <div class="group">
+            <div class="group-title">Pending changes <span id="preview-count" class="value-badge">0</span></div>
+            <p class="dim" style="margin:0 0 8px">Exactly what Apply will write to the device (changed records only).</p>
+            <div id="preview-list" class="preview-list"></div>
+          </div>
+          <div class="group">
             <div class="group-title">Polling rate</div>
             <div id="rate-seg" class="segmented"></div>
           </div>
           <div class="group">
             <div class="group-title">Lift-off distance <span class="dim">LOD</span></div>
             <div id="lod-seg" class="segmented"></div>
+          </div>
+          <div class="group">
+            <div class="group-title">Sensor mode <span class="dim">HP / LP</span></div>
+            <div id="mode-seg" class="segmented"></div>
+            <p class="dim" style="margin:8px 0 0">HP = high performance, LP = low power (vendor <code>customComboBox_ModeSelect</code>).</p>
           </div>
           <div class="group">
             <div class="group-title">Click debounce <span id="debounce-val" class="value-badge">8 ms</span></div>

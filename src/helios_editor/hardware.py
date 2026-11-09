@@ -20,6 +20,7 @@ import fcntl
 import glob
 import os
 import select
+import threading
 import time
 from dataclasses import dataclass
 
@@ -101,6 +102,8 @@ class HIDTransport(Transport):
         self.last_reports: list[bytes] = []
         self._unlocked = False
         self._pending: list[bytes] = []   # device reports not yet consumed
+        self._device_state: object | None = None  # last known/applied profile
+        self._io_lock = threading.RLock()   # serialize all device I/O
 
     # --- low level ---
 
@@ -137,7 +140,7 @@ class HIDTransport(Transport):
             fcntl.ioctl(fd, HIDIOCSFEATURE, array.array('B', frame), True)
         except OSError as exc:
             raise TransportError(f"HIDIOCSFEATURE failed: {exc.strerror}") from exc
-        self._pump(fd, timeout=0.20)
+        self._pump(fd, timeout=0.08)
         return self._take(frame[1], (frame[3] << 8) | frame[4])
 
     @staticmethod
@@ -185,7 +188,7 @@ class HIDTransport(Transport):
                         array.array('B', P.poll(P.CMD_DEVICE_ONLINE)), True)
         except OSError as exc:
             raise TransportError(f"poll failed: {exc.strerror}") from exc
-        self._pump(fd, timeout=0.25)
+        self._pump(fd, timeout=0.10)
         return self._take(P.CMD_DEVICE_ONLINE)
 
     def close(self) -> None:
@@ -218,6 +221,10 @@ class HIDTransport(Transport):
         by the host BT stack and exposes NO vendor HID config interface, so it
         cannot be detected here and is reported as such.
         """
+        with self._io_lock:
+            return self._device_status_locked()
+
+    def _device_status_locked(self) -> dict:
         info = {
             "vid": VID, "pid": None, "connection": None,
             "bluetooth": False, "online": False,
@@ -307,6 +314,35 @@ class HIDTransport(Transport):
             reply = self._await_echo(P.CMD_READ_FLASH_DATA, address)
         return reply[6:6 + length]
 
+    def read_active_dpi(self) -> int | None:
+        """Read ONLY the active DPI stage index (flash 0x04).
+
+        Cheap single-record read for the background sync loop: pressing the
+        bottom DPI-cycle button changes this on the device, and the web UI
+        must follow it without a full (multi-second) flash sweep. Returns None
+        when the device is unreachable/asleep. Requires the startup unlock.
+        """
+        if self.dry_run:
+            return None
+        with self._io_lock:
+            return self._read_active_dpi_locked()
+
+    def _read_active_dpi_locked(self) -> int | None:
+        try:
+            self.unlock(verify=False)
+            # Drop any stale cmd-8 replies left in the echo queue from an
+            # earlier full read; otherwise a background poll can return an
+            # old active-DPI value and miss a hardware button cycle.
+            self._pending = [r for r in self._pending
+                             if r[1] != P.CMD_READ_FLASH_DATA]
+            rec = self.read_flash(P.ADDR_ACTIVE_DPI_INDEX, 2)
+            idx = rec[0]
+            if 0 <= idx < 4:   # MAX_DPI_STAGES
+                return idx
+        except (TransportError, IndexError):
+            pass
+        return None
+
     def write_flash(self, address: int, values: bytes) -> None:
         """Write one confirmed flash record (cmd 7), then verify its echo."""
         frame = P.write_record(address, values)
@@ -352,14 +388,22 @@ class HIDTransport(Transport):
         Flash layout was reconstructed from the cmd-8 sweep (see
         docs/HARDWARE.md). Reads require the two-password startup unlock.
         """
+        with self._io_lock:
+            return self._read_profile_locked()
+
+    def _read_profile_locked(self) -> ButtonProfile:
         profile = ButtonProfile()
         s = profile.settings
         if self.dry_run:
+            self._device_state = profile.to_dict()
             return profile
         try:
             self.unlock()
         except TransportError:
-            return profile  # device not unlocked; keep safe defaults
+            # Unlock failed (mouse asleep / link down). Do NOT cache defaults
+            # as the device state: a later Apply would full-write against a
+            # wrong baseline. Leave _device_state as-is.
+            return profile
         from .model import HOTSPOTS, MAX_DPI_STAGES, Binding
         try:
             rr = self.read_flash(P.ADDR_REPORT_RATE, 2)[0]
@@ -402,35 +446,52 @@ class HIDTransport(Transport):
                                                            rec[1] | (rec[2] << 8))
             except (TransportError, IndexError):
                 pass
+        try:
+            s.sensor_mode = self.read_flash(P.ADDR_SENSOR_MODE, 2)[0] & 1
+        except (TransportError, IndexError):
+            pass
+        self._device_state = profile.to_dict()
         return profile
     def write_profile(self, profile: ButtonProfile) -> None:
-        """Apply the full confirmed config: 6 buttons, 4 DPI stages + colors."""
+        """Write ONLY the records that changed since the last known device state.
+
+        Sending all 23 records on every Apply caused extreme mouse lag (each
+        record costs an ACK round-trip plus a poll). With a cached baseline a
+        single DPI edit writes one record. On the first Apply with no baseline
+        (e.g. a cold process) we fall back to a full write, which is still
+        bounded and only happens once per session.
+        """
+        with self._io_lock:
+            return self._write_profile_locked(profile)
+
+    def _write_profile_locked(self, profile: ButtonProfile) -> None:
         errors = profile.validate()
         if errors:
             raise TransportError("invalid profile: " + "; ".join(errors))
+        # A real device needs a known baseline for delta writes. Without one
+        # we would full-write 23 records (the lag bug). Try one read; if the
+        # device is unreachable, fail fast with an actionable message.
+        if self._device_state is None and not self.dry_run:
+            self.read_profile()
+        if self._device_state is None and not self.dry_run:
+            raise TransportError(
+                "cannot read device state (mouse asleep or link down); wake the "
+                "mouse and retry Apply. No writes were sent.")
+        baseline = (ButtonProfile.from_dict(self._device_state)
+                    if self._device_state else None)
+        records = (P.changed_records(baseline, profile) if baseline
+                   else P.profile_to_records(profile))
+        self.last_written_records = [(a, v, l) for a, v, l in records]
+        if not records:
+            return  # nothing to do; no device churn at all
         # The poll clock plus the startup unlock keeps the dongle servicing
         # config commands; without it writes are silently dropped.
         self.unlock(verify=False)
-        from .model import HOTSPOTS, MAX_DPI_STAGES
-        s = profile.settings
-        self.write_flash(P.ADDR_REPORT_RATE, P.report_rate_value(s.report_rate))
-        self.write_flash(P.ADDR_LOD, bytes((s.lod_mm,)))
-        self.write_flash(P.ADDR_DEBOUNCE, bytes((s.debounce_ms,)))
-        self.write_flash(P.ADDR_MOTION_SYNC, bytes((int(s.motion_sync),)))
-        self.write_flash(P.ADDR_ANGLE_SNAPPING, bytes((int(s.angle_snapping),)))
-        self.write_flash(P.ADDR_RIPPLE_CONTROL, bytes((int(s.ripple_control),)))
-        # 4 DPI stages: count, active index, register, and unique LED color
-        self.write_flash(P.ADDR_DPI_STAGE_COUNT, bytes((len(s.dpi_stages),)))
-        self.write_flash(P.ADDR_ACTIVE_DPI_INDEX, bytes((s.active_dpi_index,)))
-        for i in range(MAX_DPI_STAGES):
-            self.write_flash(P.dpi_stage_address(i), P.dpi_to_register(s.dpi_stages[i]))
-            self.write_flash(P.dpi_color_address(i), bytes(s.dpi_colors[i]))
-        # 6 physical button KeyFunMaps at 0x60 + 4*i
-        for h in HOTSPOTS:
-            b = profile.bindings[h.id]
-            self.write_flash(P.keymap_address(h.id), bytes((b.type, b.param1, b.param2)))
+        for addr, vals, _label in records:
+            self.write_flash(addr, vals)
         # PCDriverStatus after writes, as observed in dpi-0400 / click-debounce
         self._send(P.raw_frame(P.CMD_PC_DRIVER_STATUS, b"\x01"))
+        self._device_state = profile.to_dict()
 
     def describe(self) -> str:
         loc = self.device_path or "auto-detect"

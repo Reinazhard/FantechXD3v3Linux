@@ -228,8 +228,20 @@ def test_api_apply_on_real_dry_run_backend():
         r = json.load(urllib.request.urlopen(req))
         assert r["ok"] is True
         assert "HIDTransport" in r["transport"]
-        # dry-run backend built confirmed reports but sent no ioctl
-        assert srv.editor_state.transport.last_reports
+        # No-op Apply writes NOTHING (delta-only). This is the lag fix: an
+        # unchanged profile must not churn the USB config interface.
+        assert srv.editor_state.transport.last_reports == []
+        assert srv.editor_state.transport.last_written_records == []
+        # A single staged change must produce exactly one flash record.
+        req2 = urllib.request.Request(base + "/api/dpi",
+                                      json.dumps({"stage": 0, "dpi": 1200}).encode(),
+                                      {"Content-Type": "application/json"})
+        json.load(urllib.request.urlopen(req2))
+        prev = json.load(urllib.request.urlopen(base + "/api/preview"))
+        assert prev["count"] == 1 and prev["changes"][0]["label"] == "DPI stage 1"
+        json.load(urllib.request.urlopen(urllib.request.Request(
+            base + "/api/apply", b"{}", {"Content-Type": "application/json"})))
+        assert len(srv.editor_state.transport.last_written_records) == 1
     finally:
         srv.shutdown()
         srv.server_close()

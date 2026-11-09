@@ -151,3 +151,29 @@ ef          outer checksum = (0x55 - sum(first 16)) & 0xFF
 button remap, debounce, high-address, read requests, status, challenge) plus
 4 device responses. `protocol.build_report()` reproduces all 243 unique
 captured SET_REPORT frames.
+
+## Delta writes (no Apply lag)
+
+`protocol.profile_to_records(profile)` is the single source of truth mapping a
+profile to `(flash_addr, value_bytes, label)` records — shared by the writer
+and the UI preview. `protocol.changed_records(baseline, draft)` returns only
+records whose bytes differ.
+
+`HIDTransport.write_profile()` caches the last known device state
+(`_device_state`, populated by `read_profile`) and writes ONLY the changed
+records. A single DPI edit writes one record; a no-op Apply writes nothing.
+Sending all 23 records on every Apply caused extreme mouse lag (each record
+costs an ACK round-trip plus a poll). On a real device a valid baseline is
+REQUIRED: if the mouse is asleep and `read_profile` fails, Apply fails fast
+with "wake the mouse" rather than attempting a full write.
+
+Live verification: two staged changes (HP mode + DPI 1200) -> 2 records in
+2.09s; read-back confirmed mode=HP and DPI=1200; no-op Apply 0 records /
+0.00s; restored to defaults.
+
+## HP / LP sensor mode
+
+`customComboBox_ModeSelect` XML: `0000`=LP, `0001`=HP (`0010`=Corded, unused).
+Captures `sensor-mode-lp.pcapng` / `sensor-mode-hp.pcapng` write flash `0xb9`
+with `00` / `01` respectively. Exposed in the UI as a segmented control and
+included in `profile_to_records` (label "Sensor mode").

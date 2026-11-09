@@ -34,9 +34,32 @@ function isDirty() {
 }
 function syncDirty() {
   $("dirty").hidden = !isDirty();
+  $("discard-btn").hidden = !isDirty();
 }
 
 function bindingValue(b) { return b ? (b.param1 | (b.param2 << 8)) : -1; }
+
+/* Pending-changes preview --------------------------------------------- */
+async function refreshPreview() {
+  try {
+    const p = await api("/api/preview");
+    $("preview-count").textContent = p.count;
+    const list = $("preview-list");
+    list.innerHTML = "";
+    if (!p.count) {
+      list.innerHTML = `<div class="preview-empty">No pending changes. Apply would write nothing.</div>`;
+    } else {
+      for (const c of p.changes) {
+        const row = document.createElement("div");
+        row.className = "preview-row";
+        row.innerHTML = `<span class="pname">${c.label} <span class="dim">${c.address}</span></span>`
+          + `<span class="pvals">${c.from} → <b>${c.to}</b></span>`;
+        list.appendChild(row);
+      }
+    }
+    $("discard-btn").hidden = !isDirty();
+  } catch (e) { /* preview is informational */ }
+}
 
 function bindingLabel(buttonId) {
   const b = state.profile.bindings[String(buttonId)];
@@ -193,6 +216,7 @@ async function assign(type, value) {
     pendingFn = null;
     syncDirty();
     renderAll();
+    refreshPreview();
     setStatus(`Button ${selectedButton} → ${bindingLabel(selectedButton)}`, "ok");
   } catch (e) { setStatus(String(e), "err"); }
 }
@@ -222,6 +246,17 @@ function renderSensor() {
       [...lodSeg.children].forEach(x => x.classList.toggle("active", x === b)));
     lodSeg.appendChild(b);
   }
+  // HP / LP sensor mode (flash 0xb9: 0=LP, 1=HP)
+  const modeSeg = $("mode-seg");
+  modeSeg.innerHTML = "";
+  for (const m of (state.catalog.sensorModes || [{value:0,label:"LP"},{value:1,label:"HP"}])) {
+    const b = document.createElement("button");
+    b.className = "seg" + (s.sensor_mode === m.value ? " active" : "");
+    b.textContent = m.label;
+    b.onclick = () => patchSettings({ sensor_mode: m.value }, "mode-seg", () =>
+      [...modeSeg.children].forEach(x => x.classList.toggle("active", x === b)));
+    modeSeg.appendChild(b);
+  }
   // debounce slider
   $("debounce").value = s.debounce_ms;
   $("debounce-val").textContent = s.debounce_ms + " ms";
@@ -247,9 +282,19 @@ function renderDpiStages() {
   s.dpi_stages.forEach((v, i) => {
     const b = document.createElement("button");
     b.className = "stage-tab" + (i === activeStage ? " active" : "");
+    const isActive = i === s.active_dpi_index;
     b.innerHTML = `<span class="swatch" style="background:${rgbHex(s.dpi_colors[i])}"></span>`
-      + `S${i + 1} · ${v}`;
-    b.onclick = () => { activeStage = i; sliderDraft = null; renderDpiStages(); };
+      + `S${i + 1} · ${v}` + (isActive ? ` <span class="dim">● on</span>` : "");
+    b.title = "Click to make this the active DPI stage (staged; Apply to write)";
+    b.onclick = async () => {
+      activeStage = i; sliderDraft = null;
+      try {
+        const j = await api("/api/dpi-active", { stage: i });
+        state.profile = j.profile; syncDirty(); refreshPreview();
+        setStatus(`Active DPI stage → S${i + 1} (${v} DPI) · Apply to write`, "ok");
+      } catch (e) { setStatus(String(e), "err"); }
+      renderDpiStages();
+    };
     tabs.appendChild(b);
   });
   // slider
@@ -279,6 +324,7 @@ function renderDpiStages() {
       try {
         const j = await api("/api/dpi-color", { stage: activeStage, rgb });
         state.profile = j.profile; syncDirty(); renderDpiStages();
+        refreshPreview();
         setStatus(`Stage ${activeStage + 1} LED → ${hex}`, "ok");
       } catch (e) { setStatus(String(e), "err"); }
     };
@@ -307,6 +353,7 @@ function initDpiControls() {
     try {
       const j = await api("/api/dpi", { stage: activeStage, dpi });
       state.profile = j.profile; sliderDraft = null; syncDirty(); renderDpiStages();
+      refreshPreview();
       setStatus(`Stage ${activeStage + 1} → ${dpi} DPI (Apply to write)`, "ok");
     } catch (e) { setStatus(String(e), "err"); }
   };
@@ -353,6 +400,7 @@ async function patchSettings(patch, kind, uiUpdate) {
     const j = await api("/api/settings", patch);
     state.profile = j.profile;
     syncDirty();
+    refreshPreview();
   } catch (e) { setStatus(String(e), "err"); }
 }
 
@@ -377,6 +425,7 @@ function renderAll() {
   renderProfileTab();
   syncDirty();
   renderStatus();
+  refreshPreview();
 }
 
 async function renderStatus() {
@@ -423,14 +472,19 @@ async function apply() {
   $("apply-btn").disabled = true;
   setStatus("Applying to device…", "");
   try {
+    const before = await api("/api/preview");
     await api("/api/apply", {});
     applied = clone(state.profile);
     syncDirty();
+    refreshPreview();
     const real = !state.catalog.transport.startsWith("Simulated");
-    setStatus(real ? "Applied · write acknowledged by device" : "Applied (simulated)", "ok");
+    setStatus(real
+      ? `Applied · ${before.count} record${before.count === 1 ? "" : "s"} acknowledged by device`
+      : `Applied (simulated) · ${before.count} record${before.count === 1 ? "" : "s"}`, "ok");
   } catch (e) {
     setStatus("Apply failed: " + String(e), "err");
     syncDirty();  // keep unsaved-changes badge visible on failure
+    refreshPreview();
   } finally {
     $("apply-btn").disabled = false;
   }
@@ -438,9 +492,20 @@ async function apply() {
 
 function initActions() {
   $("apply-btn").onclick = apply;
+  $("discard-btn").onclick = async () => {
+    try {
+      const j = await api("/api/discard", {});
+      state.profile = j.profile; applied = clone(j.profile); serverDirty = false;
+      renderAll(); setStatus("Draft discarded.", "ok");
+    } catch (e) { setStatus(String(e), "err"); }
+  };
   $("load-btn").onclick = async () => {
+    if (isDirty() && !window.confirm("Discard unsaved changes and reload from device?")) {
+      setStatus("Reload skipped (unsaved draft kept).", "");
+      return;
+    }
     try { const j = await api("/api/load", {}); state.profile = j.profile; applied = clone(j.profile);
-      renderAll(); setStatus("Reloaded from device.", "ok"); }
+      serverDirty = false; renderAll(); setStatus("Reloaded from device.", "ok"); }
     catch (e) { setStatus(String(e), "err"); }
   };
   $("validate-btn").onclick = async () => {
@@ -481,6 +546,31 @@ function initActions() {
   $("debounce").oninput = (e) => patchSettings({ debounce_ms: Number(e.target.value) }, "debounce");
   initTabs();
   initDpiControls();
+  // Automated robust sync: device -> server, never clobbers a draft.
+  // Server-side background sync does the device polling (no tab required).
+  // The client only watches a heartbeat; when the generation changes it pulls
+  // the merged state. The server merges volatile fields (hardware DPI cycle)
+  // WITHOUT discarding the user's draft, so this never clobbers edits.
+  const syncNote = document.createElement("span");
+  syncNote.id = "sync-note"; syncNote.className = "sync-note"; syncNote.textContent = "auto-sync on";
+  document.getElementById("statusbar")?.appendChild(syncNote);
+  let lastGen = -1;
+  const watchSync = async () => {
+    try {
+      const st = await api("/api/sync-status");
+      syncNote.textContent = "auto-sync: " + (st.message || "on");
+      if (st.generation !== lastGen) {
+        lastGen = st.generation;
+        const fresh = await api("/api/state");
+        // Keep the applied baseline: /api/state may contain a draft. Only
+        // the merged volatile fields (e.g. hardware DPI cycle) should update.
+        state = fresh; serverDirty = fresh.dirty;
+        renderAll();   // reflects hardware DPI cycle in the stage selection
+      }
+    } catch (e) { syncNote.textContent = "auto-sync: reconnecting"; }
+  };
+  setInterval(watchSync, 1500);
+  setTimeout(watchSync, 1200);
   // poll live device status every 15 s
   setInterval(renderStatus, 15000);
 }

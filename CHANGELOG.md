@@ -4,6 +4,55 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+* **HP / LP sensor mode** toggle (flash `0xb9`: 0=LP, 1=HP, from the vendor's
+  `customComboBox_ModeSelect` and `sensor-mode-lp/hp` captures).
+* **DPI stage cycling from the app**: clicking a stage tab sets it as the
+  active DPI stage (staged, Apply to write) instead of relying only on the
+  bottom hardware button.
+* **Pending-changes preview**: shows exactly which flash records Apply will
+  write, with old -> new bytes; Discard reverts the draft.
+* **Automated robust sync**: device -> server refresh that never clobbers an
+  unsaved draft, is single-flight, throttled, and backs off on transport
+  failure. Manual Reload now confirms before discarding a draft.
+
+### Fixed (sync follow-up)
+
+* **Auto-sync no longer needs the Reload button**: a server-side background
+  thread polls the device every 2s (no browser tab required) via a cheap
+  single-record `read_active_dpi()` (flash `0x04`), with staggered backoff.
+  The client only watches a heartbeat (`/api/sync-status`) and re-renders on
+  a generation bump.
+* **Hardware DPI cycling now syncs to the web selection**: sync MERGES the
+  device-observed active DPI index into the current profile instead of
+  skipping whenever a draft exists. User-authored draft fields are preserved;
+  only the volatile `active_dpi_index` follows the hardware. A stale queued
+  cmd-8 reply is flushed before each cheap read so a cycle is never missed.
+* All device I/O (Apply, full read, cheap poll, status) is serialized behind
+  a reentrant lock so the background poll cannot interleave with a write and
+  drop an ACK.
+
+### Changed / Fixed
+
+* **Apply is delta-only**: `profile_to_records()` is the single source of
+  truth shared by the writer and preview; Apply writes ONLY changed records.
+  A single-field edit writes 1 record (was 22); a no-op Apply writes nothing.
+  This removes the extreme mouse lag during Apply. Reduced per-record pump
+  timeouts; ACK verification via the echo queue is unchanged.
+* A real-device Apply now requires a valid cached device baseline; if the
+  mouse is asleep it fails fast with "wake the mouse" instead of attempting
+  a full 23-record write.
+
+### Verified
+
+* Real device: two staged changes -> 2 records in 2.09s; read-back confirmed
+  mode=HP and DPI=1200; no-op Apply 0 records / 0.00s; restored to defaults.
+* 50 pytest tests pass (incl. delta-write, preview, staged DPI, HP/LP, and
+  auto-sync-does-not-clobber-draft regressions).
+
 ## [0.2.0] - 2026-11-09
 
 First public release.
