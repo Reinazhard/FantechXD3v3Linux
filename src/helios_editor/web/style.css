@@ -215,7 +215,7 @@ button.primary { background: var(--md-sys-color-primary); color: var(--md-sys-co
 button.primary:hover { background: var(--md-sys-color-primary); }
 button.primary:disabled { opacity: .45; cursor: default; box-shadow: none; }
 button.tonal { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
-  border: none; font-weight: 600; }
+  border: none; font-weight: 600; white-space: nowrap; }
 button.ghost, button.text { background: transparent; border-color: transparent; color: var(--md-sys-color-primary); }
 button.danger { background: transparent; border-color: transparent; color: var(--md-sys-color-error); }
 
@@ -332,7 +332,6 @@ button.danger { background: transparent; border-color: transparent; color: var(-
   border: 1px solid var(--md-sys-color-outline-variant); border-radius: 7px; }
 .fn-item:hover { border-color: var(--md-sys-color-primary); }
 .fn-item.active { border-color: var(--md-sys-color-primary); background: var(--md-sys-color-primary-container); color: var(--md-sys-color-primary); font-weight: 600; }
-.fn-item .fn-type { float: right; font-size: 9px; color: var(--md-sys-color-on-surface-variant); font-family: ui-monospace, monospace; }
 .sub-wrap { margin-top: 12px; }
 .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .chip, .stage-tab, .swatch-btn { position: relative; overflow: hidden; isolation: isolate; }
@@ -373,14 +372,6 @@ button.danger { background: transparent; border-color: transparent; color: var(-
 .dpi-slider-head { display: flex; align-items: baseline; gap: 6px; margin: 4px 0 2px; }
 .dpi-value { font-family: ui-monospace, monospace; font-size: 36px; font-weight: 750; }
 #dpi-slider { width: 100%; accent-color: var(--md-sys-color-primary); }
-.dpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.dpi-stage { background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-color-outline-variant); border-radius: 8px; padding: 8px 10px; }
-.dpi-stage.active { border-color: var(--md-sys-color-primary); }
-.dpi-stage .lbl { font-size: 10px; color: var(--md-sys-color-on-surface-variant); display: flex; justify-content: space-between; }
-.dpi-stage .setactive { font-size: 9px; color: var(--md-sys-color-primary); background: none; border: none; padding: 0; }
-.dpi-stage .val { font-family: ui-monospace, monospace; font-size: 16px; font-weight: 700; }
-.dpi-stage .step { display: flex; gap: 4px; margin-top: 4px; }
-.dpi-stage .step button { padding: 2px 9px; font-size: 13px; line-height: 1; }
 .group-title { font-size: 12px; font-weight: 650; margin-bottom: 12px; display: flex;
   align-items: center; justify-content: space-between; }
 .dim { color: var(--md-sys-color-on-surface-variant); font-weight: 400; font-size: 11px; }
