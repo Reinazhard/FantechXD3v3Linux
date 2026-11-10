@@ -26,7 +26,7 @@
   <aside id="rail" class="rail">
     <header class="rail-identity">
       <div class="brand">
-        <span class="logo">H</span>
+        <span class="logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 3v18M19 3v18M5 12h14"/><circle cx="19" cy="12" r="2.4" fill="currentColor" stroke="none"/></svg></span>
         <div>
           <h1>Helios II <span>XD3v3</span></h1>
           <div class="sub">Mouse Editor</div>
@@ -77,7 +77,7 @@
           </section>
           <div class="editor-pane">
             <div id="editor-empty" class="empty">
-              <div class="empty-icon">⌖</div>
+              <svg class="empty-icon" width="40" height="40" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M24 5C13 5 7 14 7 26c0 10 6 17 17 17s17-7 17-17C41 14 35 5 24 5Z"/><path d="M24 5v14M7 22h34"/><circle cx="24" cy="34" r="6" stroke-dasharray="3 3"/></svg>
               <div>No button selected</div>
               <p>Pick a hotspot on the mouse, or a row below.</p>
             </div>
@@ -214,6 +214,7 @@
   </footer>
 </div>
 <!-- Reusable confirmation dialog (focus trap, Escape/Enter, focus restore). -->
+<div id="dialog-scrim" class="dialog-scrim" aria-hidden="true"></div>
 <div id="confirm-dialog" class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" hidden>
   <h2 id="confirm-title"></h2>
   <p id="confirm-body"></p>
