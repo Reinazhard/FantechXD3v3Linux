@@ -418,7 +418,7 @@ button.danger { background: transparent; border-color: transparent; color: var(-
   transition: transform var(--motion-duration-fast) var(--motion-ease-out),
               background-color var(--motion-duration-fast) var(--motion-ease-standard),
               box-shadow var(--motion-duration-standard) var(--motion-ease-out); }
-.hotspot:hover { transform: scale(1.18); background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+.hotspot:hover { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
 .hotspot.selected { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); box-shadow: 0 0 0 4px color-mix(in srgb, var(--md-sys-color-primary) 28%, transparent); }
 .hotspot.reserved { border: 2px dashed var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface-container-high);
   box-shadow: none; color: var(--md-sys-color-on-surface-variant); }
@@ -525,7 +525,6 @@ input[type=range]:focus-visible { outline: 3px solid var(--md-sys-color-secondar
 .palette { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .swatch-btn { aspect-ratio: 1; border-radius: var(--md-sys-shape-corner-small);
   border: 2px solid var(--md-sys-color-outline-variant); padding: 0; }
-.swatch-btn:hover { transform: scale(1.1); }
 .swatch-btn.active { border-color: var(--md-sys-color-primary); box-shadow: 0 0 0 2px var(--md-sys-color-primary); }
 .toggles { display: flex; flex-direction: column; gap: 10px; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
@@ -641,6 +640,15 @@ pre { background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-co
               block-size var(--motion-duration-standard) var(--motion-ease-out); }
 .accordion[open]::details-content { opacity: 1; block-size: auto; }
 .accordion > summary { transition: color var(--motion-duration-fast) var(--motion-ease-standard); }
+
+/* Hover-only scale feedback. :active press states (button, Apply detent,
+   slider thumbs) stay GLOBAL — a press occurs on touch too. The .hotspot:hover
+   color/background change also stays global (a state indication, not a
+   pointer-only affordance); only the scale gates on hover capability. */
+@media (hover: hover) and (pointer: fine) {
+  .hotspot:hover { transform: scale(1.18); }
+  .swatch-btn:hover { transform: scale(1.1); }
+}
 
 /* ---- Reduced motion (hardened). LAST @media (prefers-reduced-motion) in the
    file. Every non-hidden base style is already visible and every entrance
