@@ -125,7 +125,40 @@
   /* Layout A composition (structure only, no new colors). */
   --rail-width: 248px;
   --workspace-max: 1040px;
+  /* ---- Motion system ---- */
+  --motion-duration-fast: 120ms;
+  --motion-duration-standard: 200ms;
+  --motion-duration-entrance: 260ms;
+  --motion-duration-exit: 160ms;
+  --motion-duration-complex: 280ms;
+  --motion-ease-standard: cubic-bezier(.2, 0, 0, 1);
+  --motion-ease-out: cubic-bezier(.05, .7, .1, 1);
+  --motion-ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --motion-stagger: 40ms;
+  --motion-reveal-distance: 8px;
+  /* Depth tokens derived ONLY from existing M3 roles (no new hex). */
+  --hairline: color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent);
+  --soft-hairline: color-mix(in srgb, var(--md-sys-color-outline-variant) 35%, transparent);
+  --stage-glow: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
+  --edge-ring: 0 0 0 1px color-mix(in srgb, var(--md-sys-color-outline-variant) 70%, transparent);
+  /* Light theme: inverse-surface #363230 is dark -> correct dark scrim. */
+  --scrim: color-mix(in srgb, var(--md-sys-color-inverse-surface) 45%, transparent);
 }
+/* Dark theme: inverse-surface is LIGHT (#e7e5e4); inverse-on-surface (#363230)
+   is the dark role. Override ONLY the scrim token; the pinned tonal table above
+   stays byte-identical. Both themes now yield a dark ~#363230@45% scrim. */
+[data-theme="dark"] { --scrim: color-mix(in srgb, var(--md-sys-color-inverse-on-surface) 45%, transparent); }
+
+/* ---- Motion system: ALL @keyframes live here (nowhere else) ----
+   Only transform/opacity are animated; no will-change (CSS-only cannot
+   reclaim it after the animation finishes). */
+@keyframes motion-rise-in { from { opacity: 0; transform: translateY(var(--motion-reveal-distance)) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes motion-view-in  { from { opacity: 0; transform: translateY(var(--motion-reveal-distance)); } to { opacity: 1; transform: none; } }
+@keyframes motion-pop-in   { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes motion-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(194%); } }
+@keyframes motion-icon-in  { from { opacity: 0; transform: rotate(-45deg) scale(.7); } to { opacity: 1; transform: none; } }
+@keyframes motion-breathe  { from { opacity: 1; } to { opacity: .55; } }
+
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body { margin: 0; font-family: var(--font-family); font-size: 13px; font-weight: 400;
@@ -453,11 +486,16 @@ pre { background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-co
 .status.ok { color: var(--md-sys-color-tertiary); } .status.err { color: var(--md-sys-color-error); }
 .top-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
 
-/* ---- Theme transition (motion-safe) ---- */
-body, #rail, #statusbar, .setting-group, .popover, #confirm-dialog {
-  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast); }
+/* ---- Reduced motion (hardened). LAST @media (prefers-reduced-motion) in the
+   file. Every non-hidden base style is already visible and every entrance
+   uses animation-fill-mode: backwards (never forwards), so disabling motion
+   leaves all content visible; [hidden] still means display:none instantly. ---- */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ---- Responsive: rail collapses to a horizontal bar, workspace stacks ---- */
