@@ -42,9 +42,9 @@
       <span id="pill-batt" class="pill">Battery unavailable</span>
     </header>
     <nav id="tabs" role="tablist" aria-label="Editor sections">
-      <button id="tab-buttons" class="tab active" data-tab="buttons" role="tab" aria-selected="true" aria-controls="panel-buttons">Buttons</button>
-      <button id="tab-sensor" class="tab" data-tab="sensor" role="tab" aria-selected="false" aria-controls="panel-sensor">Sensor</button>
-      <button id="tab-profiles" class="tab" data-tab="profiles" role="tab" aria-selected="false" aria-controls="panel-profiles">Profile</button>
+      <button id="tab-buttons" class="tab active" data-tab="buttons" role="tab" aria-selected="true" aria-controls="panel-buttons"><svg class="nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="7"/><path d="M12 2v7M5 9h14"/></svg><span>Buttons</span></button>
+      <button id="tab-sensor" class="tab" data-tab="sensor" role="tab" aria-selected="false" aria-controls="panel-sensor"><svg class="nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg><span>Sensor</span></button>
+      <button id="tab-profiles" class="tab" data-tab="profiles" role="tab" aria-selected="false" aria-controls="panel-profiles"><svg class="nav-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 14h5"/></svg><span>Profile</span></button>
     </nav>
     <div class="rail-foot">
       <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle light and dark theme" aria-pressed="false" title="Toggle light and dark theme">
@@ -139,13 +139,13 @@
         </section>
         <div class="sensor-support">
           <section class="setting-group">
-            <h3 class="group-title">Performance</h3>
+            <h2 class="group-title">Performance</h2>
             <div class="setting-row"><span>Polling rate</span><div id="rate-seg" class="segmented"></div></div>
             <div class="setting-row"><span>Sensor mode</span><div id="mode-seg" class="segmented"></div></div>
             <p id="mode-desc" class="dim"></p>
           </section>
           <section class="setting-group">
-            <h3 class="group-title">Tracking &amp; tuning</h3>
+            <h2 class="group-title">Tracking &amp; tuning</h2>
             <div class="setting-row"><span>Lift-off distance</span><div id="lod-seg" class="segmented"></div></div>
             <div id="toggles" class="toggles"></div>
             <div class="setting-row">
@@ -164,13 +164,13 @@
         <h1 class="view-title">Profile</h1>
         <p class="view-helper">Device details and configuration files.</p>
         <section class="setting-group">
-          <h3 class="group-title">Device</h3>
+          <h2 class="group-title">Device</h2>
           <p class="dim">Helios II XD3v3</p>
           <p id="status-note" class="status-note"></p>
           <p id="offline-hint" class="status-note" hidden></p>
         </section>
         <section class="setting-group">
-          <h3 class="group-title">Configuration files</h3>
+          <h2 class="group-title">Configuration files</h2>
           <div class="btn-row">
             <button id="export-btn" class="ghost">Export JSON</button>
             <button id="import-btn" class="ghost">Import JSON</button>
