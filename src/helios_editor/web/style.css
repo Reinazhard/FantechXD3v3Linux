@@ -1,26 +1,140 @@
+/* ---- M3 (Material You) design tokens ----
+   Tonal palette from one warm-orange seed (hue 24). Light is the :root
+   default; [data-theme="dark"] overrides it. The inline head script in
+   index.html sets data-theme from localStorage / prefers-color-scheme.
+   These two tables are the single source of truth for color. ---- */
+:root, [data-theme="light"] {
+  color-scheme: light;
+  --md-sys-color-primary: #bd550f;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #fbe1d0;
+  --md-sys-color-on-primary-container: #2f1504;
+  --md-sys-color-secondary: #836449;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #ede5de;
+  --md-sys-color-on-secondary-container: #211912;
+  --md-sys-color-tertiary: #943866;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #f1dae6;
+  --md-sys-color-on-tertiary-container: #250e1a;
+  --md-sys-color-error: #b32419;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #f9d5d2;
+  --md-sys-color-on-error-container: #2d0906;
+  --md-sys-color-background: #fafafa;
+  --md-sys-color-on-background: #1b1918;
+  --md-sys-color-surface: #fafafa;
+  --md-sys-color-on-surface: #1b1918;
+  --md-sys-color-surface-variant: #e8e5e3;
+  --md-sys-color-on-surface-variant: #544b45;
+  --md-sys-color-outline: #8c7d73;
+  --md-sys-color-outline-variant: #d1cbc7;
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container-low: #f5f5f4;
+  --md-sys-color-surface-container: #f1f0ef;
+  --md-sys-color-surface-container-high: #eceae9;
+  --md-sys-color-surface-container-highest: #e7e5e4;
+  --md-sys-color-inverse-surface: #363230;
+  --md-sys-color-inverse-on-surface: #f3f2f1;
+  --md-sys-color-inverse-primary: #f7c3a1;
+  --md-sys-color-surface-tint: #bd550f;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --md-sys-color-primary: #f7c3a1;
+  --md-sys-color-on-primary: #5e2a08;
+  --md-sys-color-primary-container: #8e3f0b;
+  --md-sys-color-on-primary-container: #fbe1d0;
+  --md-sys-color-secondary: #dacbbe;
+  --md-sys-color-on-secondary: #413225;
+  --md-sys-color-secondary-container: #624b37;
+  --md-sys-color-on-secondary-container: #ede5de;
+  --md-sys-color-tertiary: #e3b5cc;
+  --md-sys-color-on-tertiary: #4a1c33;
+  --md-sys-color-tertiary-container: #6f2a4d;
+  --md-sys-color-on-tertiary-container: #f1dae6;
+  --md-sys-color-error: #f2aba6;
+  --md-sys-color-on-error: #59120d;
+  --md-sys-color-error-container: #861b13;
+  --md-sys-color-on-error-container: #f9d5d2;
+  --md-sys-color-background: #100f0e;
+  --md-sys-color-on-background: #e7e5e4;
+  --md-sys-color-surface: #100f0e;
+  --md-sys-color-on-surface: #e7e5e4;
+  --md-sys-color-surface-variant: #544b45;
+  --md-sys-color-on-surface-variant: #d1cbc7;
+  --md-sys-color-outline: #a3978f;
+  --md-sys-color-outline-variant: #544b45;
+  --md-sys-color-surface-container-lowest: #0b0a0a;
+  --md-sys-color-surface-container-low: #1b1918;
+  --md-sys-color-surface-container: #201e1d;
+  --md-sys-color-surface-container-high: #2e2b29;
+  --md-sys-color-surface-container-highest: #3b3735;
+  --md-sys-color-inverse-surface: #e7e5e4;
+  --md-sys-color-inverse-on-surface: #363230;
+  --md-sys-color-inverse-primary: #bd550f;
+  --md-sys-color-surface-tint: #f7c3a1;
+}
+
+/* Theme-independent M3 tokens + retained non-color primitives. */
 :root {
-  /* Design tokens (Phase 1). Plain CSS, no framework, no build step. */
-  --color-background: #11161d;
-  --color-surface: #191f28;
-  --color-surface-elevated: #222a35;
-  --color-surface-hover: #293441;
-  --color-border: #303a47;
-  --color-accent: #ff791b;
-  --color-accent-hover: #f06a0c;
-  --color-accent-dim: rgba(255,121,27,.14);
-  --color-text-primary: #e5eaf0;
-  --color-text-secondary: #9aa7b5;
-  --color-text-muted: #697787;
-  --color-success: #36c58a;
-  --color-warning: #e6ad48;
-  --color-error: #e45d68;
-  --font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  --radius-control: 6px; --radius-panel: 10px;
+  /* Shape scale (M3 Expressive). */
+  --md-sys-shape-corner-none: 0;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-full: 9999px;
+  /* Type scale (Roboto stack; no webfont fetch). font shorthand values. */
+  --md-sys-typescale-display-large: 400 57px/64px var(--font-family);
+  --md-sys-typescale-display-small: 400 36px/44px var(--font-family);
+  --md-sys-typescale-headline-large: 400 32px/40px var(--font-family);
+  --md-sys-typescale-headline-small: 400 24px/32px var(--font-family);
+  --md-sys-typescale-title-large: 400 22px/28px var(--font-family);
+  --md-sys-typescale-title-medium: 600 16px/24px var(--font-family);
+  --md-sys-typescale-title-small: 600 14px/20px var(--font-family);
+  --md-sys-typescale-label-large: 500 14px/20px var(--font-family);
+  --md-sys-typescale-label-medium: 500 12px/16px var(--font-family);
+  --md-sys-typescale-label-small: 500 11px/16px var(--font-family);
+  --md-sys-typescale-body-large: 400 16px/24px var(--font-family);
+  --md-sys-typescale-body-medium: 400 14px/20px var(--font-family);
+  --md-sys-typescale-body-small: 400 12px/16px var(--font-family);
+  /* Elevation (tonal surface + shadow). */
+  --md-sys-elevation-1: 0 1px 2px rgba(0,0,0,.18), 0 1px 3px 1px rgba(0,0,0,.12);
+  --md-sys-elevation-2: 0 1px 2px rgba(0,0,0,.18), 0 2px 6px 2px rgba(0,0,0,.12);
+  --md-sys-elevation-3: 0 4px 8px 3px rgba(0,0,0,.12), 0 1px 3px rgba(0,0,0,.18);
+  --md-sys-elevation-4: 0 6px 10px 4px rgba(0,0,0,.12), 0 2px 3px rgba(0,0,0,.18);
+  --md-sys-elevation-5: 0 8px 12px 6px rgba(0,0,0,.12), 0 4px 4px rgba(0,0,0,.18);
+  /* State layers (M3 interaction). */
+  --md-sys-state-hover-opacity: .08;
+  --md-sys-state-focus-opacity: .12;
+  --md-sys-state-pressed-opacity: .12;
+  --md-sys-state-drag-opacity: .16;
+  /* Retained non-color primitives (radii retuned to M3 shape scale). */
+  --font-family: Roboto, "Helvetica Neue", Arial, system-ui, sans-serif;
+  --radius-control: 8px; --radius-panel: 16px;
   --spacing-1: 4px; --spacing-2: 8px; --spacing-3: 12px;
   --spacing-4: 16px; --spacing-5: 20px; --spacing-6: 24px;
   --header-height: 58px; --control-height: 36px;
   --transition-fast: 120ms ease;
-  color-scheme: dark;
+
+  /* Transitional color aliases — REMOVED in Step 3. Keep existing
+     selectors rendering until they migrate to --md-sys-color-* roles. */
+  --color-background: var(--md-sys-color-surface);
+  --color-surface: var(--md-sys-color-surface-container-low);
+  --color-surface-elevated: var(--md-sys-color-surface-container);
+  --color-surface-hover: var(--md-sys-color-surface-container-high);
+  --color-border: var(--md-sys-color-outline-variant);
+  --color-accent: var(--md-sys-color-primary);
+  --color-accent-hover: var(--md-sys-color-primary);
+  --color-accent-dim: var(--md-sys-color-primary-container);
+  --color-text-primary: var(--md-sys-color-on-surface);
+  --color-text-secondary: var(--md-sys-color-on-surface-variant);
+  --color-text-muted: var(--md-sys-color-on-surface-variant);
+  --color-success: var(--md-sys-color-tertiary);
+  --color-warning: var(--md-sys-color-tertiary);
+  --color-error: var(--md-sys-color-error);
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
