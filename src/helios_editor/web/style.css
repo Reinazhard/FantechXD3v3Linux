@@ -138,7 +138,6 @@
   /* Depth tokens derived ONLY from existing M3 roles (no new hex). */
   --hairline: color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent);
   --soft-hairline: color-mix(in srgb, var(--md-sys-color-outline-variant) 35%, transparent);
-  --stage-glow: color-mix(in srgb, var(--md-sys-color-primary) 6%, transparent);
   --edge-ring: 0 0 0 1px color-mix(in srgb, var(--md-sys-color-outline-variant) 70%, transparent);
   /* Light theme: inverse-surface #363230 is dark -> correct dark scrim. */
   --scrim: color-mix(in srgb, var(--md-sys-color-inverse-surface) 45%, transparent);
@@ -224,7 +223,8 @@ body:has(#confirm-dialog:not([hidden])) .dialog-scrim { opacity: 1; pointer-even
 .pending-indicator[data-state="success"] { animation: motion-pop-in var(--motion-duration-standard) var(--motion-ease-out) backwards; }
 #pending-popover { position: absolute; left: 0; bottom: calc(100% + var(--space-1)); z-index: 20;
   padding: var(--space-2); min-width: 240px; max-height: 320px; overflow-y: auto;
-  border-radius: var(--md-sys-shape-corner-medium); box-shadow: var(--md-sys-elevation-2);
+  border-radius: var(--md-sys-shape-corner-medium);
+  box-shadow: var(--edge-ring), var(--md-sys-elevation-2);
   background: var(--md-sys-color-surface-container); border: none; }
 #pending-popover[hidden] { display: none; }
 #pending-labels { font-size: 12px; color: var(--md-sys-color-on-surface); }
@@ -396,11 +396,10 @@ button.danger { background: transparent; border-color: transparent; color: var(-
    ONLY). 1px orthogonal guides on the pinned 4px scale ground the backdrop
    in the device's X/Y measurement semantics; concentric rings were rejected
    (they encode no hardware fact). Pseudo-elements are not exposed to AT. */
-.diagram-scroll::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .8;
-  background: radial-gradient(circle at 50% 45%, var(--stage-glow) 0%, transparent 62%),
-              linear-gradient(to right, var(--soft-hairline) 0 1px, transparent 1px 100%),
+.diagram-scroll::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+  background: linear-gradient(to right, var(--soft-hairline) 0 1px, transparent 1px 100%),
               linear-gradient(to bottom, var(--soft-hairline) 0 1px, transparent 1px 100%);
-  background-size: 100% 100%, var(--space-5) var(--space-5), var(--space-5) var(--space-5); }
+  background-size: var(--space-5) var(--space-5), var(--space-5) var(--space-5); }
 .diagram-scroll::after { content: ""; position: absolute; left: 50%; top: 50%; width: 9px; height: 1px;
   background: var(--md-sys-color-primary); opacity: .5; transform: translate(-50%, -50%); pointer-events: none; }
 /* Keep BOTH pseudo-elements BEHIND the opaque mouse body: positioned siblings
@@ -412,8 +411,8 @@ button.danger { background: transparent; border-color: transparent; color: var(-
   transform: scale(0.70); transform-origin: top left; }
 #mouse { width: 432px; height: 356px; display: block; user-select: none; }
 .hotspot { position: absolute; width: 32px; height: 32px; margin: -16px 0 0 -16px;
-  border-radius: var(--md-sys-shape-corner-full); border: none; background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container); font-weight: 700; display: flex; align-items: center;
+  border-radius: var(--md-sys-shape-corner-full); border: none; background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface); font-weight: 700; display: flex; align-items: center;
   justify-content: center; cursor: pointer; box-shadow: var(--md-sys-elevation-1);
   transition: transform var(--motion-duration-fast) var(--motion-ease-out),
               background-color var(--motion-duration-fast) var(--motion-ease-standard),
@@ -670,6 +669,9 @@ pre { background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-co
     border-right: none; border-bottom: 1px solid var(--soft-hairline); }
   .rail-identity { flex-direction: row; align-items: center; gap: var(--space-1); flex: 0 0 auto; }
   .rail-identity .brand .sub, .rail-identity #device-label, .rail-identity #link-dot { display: none; }
+  /* Keep the collapsed single-row rail quiet across the WHOLE 720-940px band:
+     the verbose demo/battery badges crowded the tabs at 768x900. */
+  .rail-identity #backend, .rail-identity #pill-conn, .rail-identity #pill-batt { display: none; }
   .rail-identity #conn-state { margin-top: 0; }
   #tabs { flex-direction: row; gap: var(--space-1); flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; }
   .tab { min-height: 44px; width: auto; padding: 0 var(--space-3); }
@@ -684,10 +686,19 @@ pre { background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-co
   #statusbar { grid-row: 3; }
 }
 @media (max-width: 719px) {
-  .rail-identity #pill-conn, .rail-identity #pill-batt, .rail-identity #backend, .rail-identity #device-label { display: none; }
   .tab .nav-icon { width: 20px; height: 20px; }
+  /* Let #tabs shrink to content so the theme-toggle shares its row instead of
+     wrapping to a wasted third rail row (rail 165px -> ~110px at 390px). */
+  #tabs { flex: 0 1 auto; }
+  .tab { padding: 0 var(--space-1); gap: var(--space-1); }
+  #theme-toggle { min-height: 44px; }
   .workspace-inner { padding: 0 var(--space-1); }
   #workspace { padding: var(--space-3); }
+  /* Free horizontal room for the DPI row: the 40px hero padding squeezed
+     #dpi-save ("Save to stage") below its nowrap text width at 390px. */
+  .sensor-hero { padding: var(--space-4); }
+  .dpi-numeric-row #dpi-save { flex: 0 0 auto; }
+  .dpi-numeric-row .text-input { min-width: 0; }
   #statusbar { flex-wrap: wrap; gap: var(--space-1); padding: var(--space-1) var(--space-3); }
   .statusbar-center { flex: 1 1 100%; order: 3; }
   .statusbar-pending { order: 1; }
