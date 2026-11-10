@@ -137,26 +137,8 @@ body { margin: 0; font-family: var(--font-family); font-size: 13px; font-weight:
   font-variant-numeric: tabular-nums;
 }
 
-/* ---- M3 component primitives ----
-   Filled/tonal/text buttons, full-corner shape, state-layer overlays. ---- */
-.btn, .btn--primary, .btn--ghost, .btn--danger, .icon-btn {
-  position: relative; min-height: 40px; border-radius: var(--md-sys-shape-corner-full);
-  overflow: hidden; isolation: isolate;
-}
-/* State layer: a tinted overlay driven by opacity, M3 interaction model. */
-.btn::before, .btn--primary::before, .btn--ghost::before, .btn--danger::before, .icon-btn::before,
-button.primary::before, button.ghost::before, button.danger::before {
-  content: ""; position: absolute; inset: 0; z-index: -1; background: currentColor;
-  opacity: 0; transition: opacity var(--transition-fast); pointer-events: none;
-}
-.btn:hover::before, .btn--ghost:hover::before, .btn--danger:hover::before, .icon-btn:hover::before,
-button.ghost:hover::before, button.danger:hover::before { opacity: var(--md-sys-state-hover-opacity); }
-.btn--primary:hover::before, button.primary:hover::before { opacity: var(--md-sys-state-hover-opacity); }
-.btn:active::before, button.primary:active::before, button.ghost:active::before { opacity: var(--md-sys-state-pressed-opacity); }
-.btn--primary { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
-  border: none; box-shadow: var(--md-sys-elevation-1); font-weight: 600; }
-.btn--ghost, .btn--danger { background: transparent; border: 1px solid var(--md-sys-color-outline-variant); }
-.btn--danger { color: var(--md-sys-color-error); }
+/* ---- M3 icon button (theme toggle); the generic button rule supplies
+     full-corner shape, state layers and 40px height. ---- */
 .icon-btn { padding: 6px 10px; line-height: 1; min-width: 40px; }
 .tabs, .tab, .segmented, .seg { min-height: var(--control-height); }
 /* ---- M3 typography scale (Roboto stack, no webfont fetch) ---- */
@@ -164,7 +146,7 @@ button.ghost:hover::before, button.danger:hover::before { opacity: var(--md-sys-
 .group-title, .editor-head h2 { font: var(--md-sys-typescale-title-medium); }
 .eyebrow { font: var(--md-sys-typescale-label-medium); letter-spacing: .12em; }
 .dpi-value, .num { font: var(--md-sys-typescale-display-small); }
-.pill, .badge, .status, .dirty, .seg, .tab, .btn, button { font: var(--md-sys-typescale-label-large); }
+.pill, .badge, .status, .dirty, .seg, .tab, button { font: var(--md-sys-typescale-label-large); }
 .dim, .desc, .scale, .stage-hint, .empty p { font: var(--md-sys-typescale-body-small); }
 body { font: var(--md-sys-typescale-body-medium); }
 #confirm-dialog h2 { font: var(--md-sys-typescale-headline-small); }
@@ -177,7 +159,7 @@ body { font: var(--md-sys-typescale-body-medium); }
   padding: var(--spacing-4); margin-bottom: var(--spacing-3); }
 .status-indicator { display: inline-flex; align-items: center; gap: var(--spacing-2); font-size: 11px; font-weight: 500; }
 /* ---- M3 menus (elevation 2) + outlined cards ---- */
-.tooltip, .popover, .dialog { border: none; border-radius: var(--md-sys-shape-corner-medium);
+.popover, .dialog { border: none; border-radius: var(--md-sys-shape-corner-medium);
   background: var(--md-sys-color-surface-container); box-shadow: var(--md-sys-elevation-2); }
 .accordion { border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-low); }
 .color-picker { display: grid; grid-template-columns: repeat(7, 1fr); gap: var(--spacing-2); }
@@ -199,10 +181,9 @@ body { font: var(--md-sys-typescale-body-medium); }
 .pending-indicator { padding: 6px 14px; border-radius: var(--md-sys-shape-corner-full);
   white-space: nowrap; background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container); border: none; font-weight: 600; }
-.pending-indicator[data-state="pending"] { color: var(--md-sys-color-tertiary); border-color: var(--md-sys-color-tertiary); }
-.pending-indicator[data-state="success"] { color: var(--md-sys-color-tertiary); border-color: var(--md-sys-color-tertiary); }
-.pending-indicator[data-state="error"], .pending-indicator[data-state="reconciling"] {
-  color: var(--md-sys-color-error); border-color: var(--md-sys-color-error); }
+.pending-indicator[data-state="pending"] { color: var(--md-sys-color-tertiary); }
+.pending-indicator[data-state="success"] { color: var(--md-sys-color-tertiary); }
+.pending-indicator[data-state="error"], .pending-indicator[data-state="reconciling"] { color: var(--md-sys-color-error); }
 .pending-indicator[data-state="writing"] { color: var(--md-sys-color-on-surface-variant); }
 #pending-popover { position: absolute; right: 0; top: calc(100% + var(--spacing-2)); z-index: 20;
   padding: var(--spacing-3); min-width: 240px; max-height: 320px; overflow-y: auto;
@@ -486,7 +467,6 @@ input[type=range]:focus-visible { outline: 3px solid var(--md-sys-color-secondar
 pre { background: var(--md-sys-color-surface); border: 1px solid var(--md-sys-color-outline-variant); padding: 10px; border-radius: 8px;
   max-height: 200px; overflow: auto; font-size: 10px; margin: 12px 0 0; }
 
-/* ---- status bar ---- */
 /* ---- M3 bottom app bar (elevation 2) ---- */
 #statusbar { display: flex; align-items: center; justify-content: space-between; flex: 0 0 36px;
   padding: 0 20px; background: var(--md-sys-color-surface-container); box-shadow: var(--md-sys-elevation-2);
