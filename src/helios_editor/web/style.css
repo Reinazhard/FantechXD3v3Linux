@@ -320,6 +320,31 @@ button.danger { background: transparent; border-color: transparent; color: var(-
 [data-theme="light"] #theme-toggle .icon-moon { display: block; }
 [data-theme="dark"] #theme-toggle .icon-sun { display: block; }
 
+/* ---- Step 3: ONE orchestrated entrance, FIRST LOAD ONLY ----
+   #rail / #workspace / #statusbar are display:flex/grid from first paint and
+   NEVER toggle display, so these keyframes fire ONCE on first load and NEVER
+   re-trigger on tab switches or renderAll() (1.5s sync heartbeat). No entrance
+   on .tab-panel or any JS-recreated descendant. backwards fill ONLY so reduced
+   motion / animation failure leave everything visible. */
+#rail      { animation: motion-rise-in var(--motion-duration-entrance) var(--motion-ease-out) 0ms backwards; }
+#workspace { animation: motion-rise-in var(--motion-duration-entrance) var(--motion-ease-out) var(--motion-stagger) backwards; }
+#statusbar { animation: motion-rise-in var(--motion-duration-entrance) var(--motion-ease-out) calc(var(--motion-stagger) * 2) backwards; }
+
+/* Navigation active-state transition (state indication, not a blocking
+   entrance). .tab is DELIBERATELY excluded from Step 4's combined button
+   transition list — a second shorthand there would REPLACE this 200ms rule. */
+.tab { transition: background-color var(--motion-duration-standard) var(--motion-ease-standard),
+                   color var(--motion-duration-standard) var(--motion-ease-standard); }
+/* Leading 3px bar grows 0->1 on selection; removed entirely on deselection. */
+.tab[aria-selected="true"]::before { transform: scaleY(1); transform-origin: center;
+  transition: transform var(--motion-duration-standard) var(--motion-ease-out); }
+@starting-style { .tab[aria-selected="true"]::before { transform: scaleY(0); } }
+
+/* Theme-toggle feedback: entrance on the newly shown icon only. */
+[data-theme="light"] #theme-toggle .icon-moon,
+[data-theme="dark"] #theme-toggle .icon-sun { animation: motion-icon-in var(--motion-duration-fast) var(--motion-ease-out) backwards; }
+
+
 /* 3. CONFIGURATION WORKSPACE: one centered contextual canvas */
 #workspace { grid-column: 2; grid-row: 1; min-width: 0; overflow-y: auto;
   padding: var(--space-7) clamp(var(--space-5), 5vw, var(--space-8)); }
