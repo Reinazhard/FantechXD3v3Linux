@@ -1004,7 +1004,35 @@ function initActions() {
   setInterval(refreshConnection, 15000);
 }
 
+/* Theme is client-side only: data-theme on <html> + persisted choice.
+   The inline head script already set the initial value to avoid FOUC;
+   initTheme() keeps the toggle, theme-color meta and aria-pressed in sync. */
+function initTheme() {
+  const root = document.documentElement;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  const el = document.getElementById("theme-toggle");
+  const META_COLOR = { light: "#fafafa", dark: "#100f0e" };
+  function applyTheme(t) {
+    root.dataset.theme = t;
+    if (meta) meta.setAttribute("content", META_COLOR[t]);
+    if (el) el.setAttribute("aria-pressed", String(t === "dark"));
+  }
+  function stored() {
+    try { return localStorage.getItem("helios-theme"); } catch (e) { return null; }
+  }
+  // Reflect whatever the head script chose (stored value or system default).
+  applyTheme(root.dataset.theme === "dark" ? "dark" : "light");
+  if (el) {
+    el.addEventListener("click", () => {
+      const next = root.dataset.theme === "dark" ? "light" : "dark";
+      applyTheme(next);
+      try { localStorage.setItem("helios-theme", next); } catch (e) { /* private mode: in-memory only */ }
+    });
+  }
+}
+
 async function init() {
+  initTheme();
   initActions();
   await refreshState();
   initStatusNote();

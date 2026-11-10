@@ -215,6 +215,16 @@ button { min-height: var(--control-height); border-radius: var(--radius-control)
   *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
 }
 
+/* Theme toggle: show the icon for the active mode only. */
+#theme-toggle .icon-sun, #theme-toggle .icon-moon { display: none; }
+[data-theme="light"] #theme-toggle .icon-moon { display: block; }
+[data-theme="dark"] #theme-toggle .icon-sun { display: block; }
+#theme-toggle { display: inline-flex; align-items: center; justify-content: center; }
+/* Smooth the palette swap; disabled under prefers-reduced-motion above. */
+body, #topbar, #statusbar, .setting-group, .group, .popover, #confirm-dialog {
+  transition: background-color var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
 #shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
 /* ---- top bar ---- */
