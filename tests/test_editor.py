@@ -245,3 +245,108 @@ def test_api_apply_on_real_dry_run_backend():
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+# --- First-boot auto-load on offline -> online transition (no hardware) ---
+
+class _FakeHID(SimulatedTransport):
+    """Mimics a device that is unreadable at boot and comes online later.
+
+    read_active_dpi() is the online signal; read_profile() returns the stored
+    config only while online (None while offline, matching HIDTransport).
+    """
+
+    def __init__(self):
+        super().__init__(ButtonProfile())   # cold = factory defaults
+        self.online = False
+        self._stored = ButtonProfile()
+        self._stored.set_dpi_stage(0, 800)   # "device" config differs from default
+
+    def read_profile(self):
+        if not self.online:
+            return None
+        return ButtonProfile.from_dict(self._stored.to_dict())
+
+    def read_active_dpi(self):
+        return self._stored.settings.active_dpi_index if self.online else None
+
+    def device_status(self):
+        return {"connection": "2.4 GHz dongle", "online": self.online,
+                "battery_percent": None, "battery_mv": None, "note": None}
+
+
+def test_boot_autoload_on_reconnect():
+    fake = _FakeHID()
+    state = server.EditorState(fake)
+    # Cold boot: mouse offline -> defaults shown, one-shot still pending.
+    assert state.profile.settings.dpi_stages[0] == 400
+    assert state._boot_load_pending is True
+
+    # Offline tick: nothing changes, flag stays pending (retry later).
+    fake.online = False
+    assert state.observe_device(quick=True) is False
+    assert state._boot_load_pending is True
+    assert state.profile.settings.dpi_stages[0] == 400
+
+    # Online transition: device config is loaded via the existing sync loop.
+    fake.online = True
+    assert state.observe_device(quick=True) is True
+    assert state.profile.settings.dpi_stages[0] == 800
+    assert state.applied["settings"]["dpi_stages"][0] == 800
+    assert state._boot_load_pending is False
+    assert state._sync_generation >= 1  # watchSync refreshes the UI
+
+    # One-shot: a later device change must NOT trigger a second full load.
+    fake._stored.set_dpi_stage(0, 1600)
+    assert state.observe_device(quick=True) is True
+    assert state.profile.settings.dpi_stages[0] == 800
+
+    # Draft safety: a user draft on a fresh cold start is never clobbered.
+    fake2 = _FakeHID()
+    state2 = server.EditorState(fake2)
+    state2.profile.set_dpi_stage(0, 3200)
+    assert state2.have_draft() is True
+    fake2.online = True
+    assert state2.observe_device(quick=True) is True
+    assert state2.profile.settings.dpi_stages[0] == 3200
+    assert state2._boot_load_pending is False  # one-shot consumed, no load
+
+
+class _OfflineTransport(SimulatedTransport):
+    """Reads fail (device asleep); used to prove /api/load never flashes defaults."""
+
+    def read_profile(self):
+        return None
+
+    def device_status(self):
+        return {"connection": "2.4 GHz dongle", "online": False,
+                "battery_percent": None, "note": None}
+
+
+def test_load_offline_returns_502():
+    import urllib.error
+    import urllib.request
+    srv = server.serve("127.0.0.1", 0, _OfflineTransport())
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        # State before: defaults, not dirty.
+        before = json.load(urllib.request.urlopen(base + "/api/state"))
+        assert before["dirty"] is False
+
+        req = urllib.request.Request(base + "/api/load", b"{}",
+                                     {"Content-Type": "application/json"})
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(req)
+        assert exc.value.code == 502
+        body = json.loads(exc.value.read())
+        assert body["error"] == "TRANSPORT_ERROR"
+
+        # Profile is unchanged (no silent overwrite with factory defaults).
+        after = json.load(urllib.request.urlopen(base + "/api/state"))
+        assert after["profile"] == before["profile"]
+        assert after["dirty"] is False
+    finally:
+        srv.shutdown()
+        srv.server_close()

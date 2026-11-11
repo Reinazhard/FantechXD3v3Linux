@@ -135,6 +135,38 @@ def test_hardware_autodetect_finds_connected_device():
         assert path.startswith("/dev/hidraw")
 
 
+def test_find_config_hidraw_matches_all_pids(monkeypatch, tmp_path):
+    """Synthetic sysfs: discovery accepts F535/F536/F537 and rejects others."""
+    from helios_editor import hardware as H
+
+    def build(hid_id, name):
+        node = tmp_path / name
+        dev = node / "device"
+        dev.mkdir(parents=True)
+        (dev / "uevent").write_text(f"HID_ID={hid_id}\nHID_NAME=Fantech Helios\n")
+        return str(node)
+
+    def discover(paths, realpath_map):
+        monkeypatch.setattr(H.glob, "glob", lambda pat: paths)
+        monkeypatch.setattr(H.os.path, "realpath", lambda p: realpath_map)
+        return H.find_config_hidraw()
+
+    for pid in ("F535", "F536", "F537"):
+        node = build(f"0003:00003554:0000{pid}", f"hidraw_{pid}")
+        assert discover([node], "/x/1-3:1.1/0003:3554:F535.0003") == \
+            "/dev/" + f"hidraw_{pid}"
+
+    unrelated = build("0003:00001234:0000ABCD", "hidraw_other")
+    assert discover([unrelated], "/x/1-3:1.1/0003:1234:ABCD.0003") is None
+
+    # Fallback branch: uevent WITHOUT HID_ID= (upper-hex substring form).
+    fb = tmp_path / "hidraw_fallback"
+    (fb / "device").mkdir(parents=True)
+    (fb / "device" / "uevent").write_text("PRODUCT=3554/F536/100\n")
+    assert discover([str(fb)], "/x/1-3:1.1/0003:3554:F536.0007") == \
+        "/dev/hidraw_fallback"
+
+
 def test_unlock_replays_captured_passwords():
     """The startup unlock must use the two passwords from startup-handshake."""
     from helios_editor.hardware import UNLOCK_PASSWORDS, HIDTransport

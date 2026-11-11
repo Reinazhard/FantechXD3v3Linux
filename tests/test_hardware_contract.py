@@ -81,6 +81,12 @@ def test_connection_modes():
     # Bluetooth has no vendor USB config interface -> not representable by a PID
 
 
+def test_supported_pids_cover_all_connection_modes():
+    from helios_editor import hardware as H
+    assert (H.VID, H.PID, H.CONFIG_INTERFACE_NUMBER) == (0x3554, 0xF535, 1)
+    assert set(H.SUPPORTED_PIDS) == {0xF535, 0xF536, 0xF537}
+
+
 def test_slider_save_and_color_change():
     p = ButtonProfile()
     p.set_dpi_stage(2, 1200)
