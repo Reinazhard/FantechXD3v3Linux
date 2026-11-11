@@ -391,20 +391,18 @@ button.danger { background: transparent; border-color: transparent; color: var(-
 .selection-pill { font-size: 11px; color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container);
   border: 1px solid var(--md-sys-color-outline-variant); padding: 4px 10px; border-radius: var(--md-sys-shape-corner-full); white-space: nowrap; }
 .selection-pill.active { border-color: var(--md-sys-color-primary); color: var(--md-sys-color-primary); }
-/* ---- CSS-3D presentation of the reverse-engineered Helios II PRO XD3V3 ----
-   Offline, zero-dependency stand-in for the Shopify <model-viewer> GLB. Depth is
-   a perspective context + a grounded drop-shadow + the SVG's own sheen/side-wall
-   gradients (layered lighting), NOT a transform on #diagram-wrap: the 6 fixed
-   hotspots share that parent, so its transform MUST stay exactly scale(0.70) to
-   preserve the Config.ini KeyParam coordinate space and the ~302x249 visual box.
-   WebGL/CDN/model-viewer are deliberately avoided (zero-build + offline). */
-.diagram-scroll { height: 249px; overflow: hidden; margin-top: var(--space-3);
-  position: relative; perspective: 1400px; perspective-origin: 50% 30%; }
+/* ---- M3 outline rendition of the Helios II PRO XD3V3 ----
+   Flat line-art traced from the official Fantech top-view render. Inlined in
+   index.html so every stroke resolves to a PINNED M3 role and follows the app's
+   data-theme toggle (no new hex, no gradients, no WebGL/CDN). #diagram-wrap MUST
+   stay exactly scale(0.70): the 6 fixed hotspots share that parent, so the
+   Config.ini KeyParam coordinate space and ~302x249 visual box are preserved. */
+.diagram-scroll { height: 249px; overflow: hidden; margin-top: var(--space-3); position: relative; }
 /* Rectilinear 24px MEASUREMENT grid + one optical-center tick (Buttons view
    ONLY). 1px orthogonal guides on the pinned 4px scale ground the backdrop
    in the device's X/Y measurement semantics; concentric rings were rejected
    (they encode no hardware fact). Pseudo-elements are not exposed to AT. */
-.diagram-scroll::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5;
+.diagram-scroll::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .3;
   background: linear-gradient(to right, var(--soft-hairline) 0 1px, transparent 1px 100%),
               linear-gradient(to bottom, var(--soft-hairline) 0 1px, transparent 1px 100%);
   background-size: var(--space-5) var(--space-5), var(--space-5) var(--space-5); }
@@ -416,9 +414,26 @@ button.danger { background: transparent; border-color: transparent; color: var(-
    calibration surface with only margins visible; geometry is unchanged. */
 .diagram-scroll::before, .diagram-scroll::after { z-index: 0; }
 #diagram-wrap { position: relative; z-index: 1; width: 432px; height: 356px;
-  transform: scale(0.70); transform-origin: top left;
-  filter: drop-shadow(0 14px 12px color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent)); }
+  transform: scale(0.70); transform-origin: top left; }
+/* Outline tokens: all roles come from the pinned M3 light/dark tables. */
 #mouse { width: 432px; height: 356px; display: block; user-select: none; }
+#mouse .mv-shell { fill: var(--md-sys-color-surface-container-low);
+  stroke: var(--md-sys-color-outline); stroke-width: 2; }
+#mouse .mv-panel { fill: var(--md-sys-color-surface-container-high); opacity: .5;
+  stroke: none; }
+#mouse .mv-detail { fill: none; stroke: var(--md-sys-color-outline-variant); stroke-width: 2; }
+#mouse .mv-port { fill: var(--md-sys-color-surface-container-highest);
+  stroke: var(--md-sys-color-outline-variant); stroke-width: 1.5; }
+#mouse .mv-wheel { fill: var(--md-sys-color-surface-container-highest);
+  stroke: var(--md-sys-color-outline); stroke-width: 2; }
+#mouse .mv-wheel-face { fill: var(--md-sys-color-surface-container); stroke: none; }
+#mouse .mv-ribs { stroke: var(--md-sys-color-outline-variant); stroke-width: 1.4; }
+/* Accent concentrated on the two side macro buttons + DPI LED (the real device's
+   yellow accents mapped to the app's single primary accent). */
+#mouse .mv-macro { fill: var(--md-sys-color-primary-container);
+  stroke: var(--md-sys-color-primary); stroke-width: 1.5; }
+#mouse .mv-logo { fill: var(--md-sys-color-outline); stroke: none; opacity: .8; }
+#mouse .mv-led { fill: var(--md-sys-color-primary); stroke: none; }
 .hotspot { position: absolute; width: 32px; height: 32px; margin: -16px 0 0 -16px;
   border-radius: var(--md-sys-shape-corner-full); border: none; background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface); font-weight: 700; display: flex; align-items: center;

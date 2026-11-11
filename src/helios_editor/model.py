@@ -3,11 +3,11 @@
 HARDWARE CONTRACT (corrected from vendor evidence, 2026-11-09)
 -------------------------------------------------------------
 The XD3v3 has **6 physical buttons**, not 16. Config.ini ``KeyParam1..6`` are
-the only hotspots on the mouse body (x < 340); ``KeyParam7..16`` are at x=384
-(right-hand function-list column) or y=266 (bottom strip) = the vendor's
-software assignment list, not hardware. The shipped ``设备1.png`` (432x356)
-shows exactly 6 buttons: L/R click, scroll wheel, two right-side macro buttons,
-and a bottom DPI-cycle button.
+the only hotspots on the mouse body; ``KeyParam7..16`` are the vendor's software
+assignment list, not hardware. The device (Helios II PRO XD3V3) has L/R click,
+a scroll wheel, two LEFT-edge macro buttons, and a bottom DPI-cycle button, as
+shown in the official Fantech top-view render. Hotspot ``x``/``y`` below are
+UI pixel coords on the 432x356 outline diagram (see HOTSPOTS), not wire values.
 
 The on-device ``FlashDataMap`` layout was recovered from a full cmd-8 flash
 sweep (dpi-read-response.pcapng, reconstructed 0x00..0x7f)::
@@ -46,14 +46,18 @@ class Hotspot:
     fixed: bool = False  # button 1 (Left) must stay bound to Left Click
 
 
-# 6 physical buttons. Coordinates are on the 432x356 vendor diagram.
+# 6 physical buttons. Coordinates are UI-only (pixel positions on the 432x356
+# outline diagram consumed by app.js renderHotspots); they are NOT on-wire
+# protocol values. Aligned to the real Helios II PRO top-view render so each
+# numbered hotspot sits on its physical button: narrow front with the wheel,
+# symmetric L/R click panels, two LEFT-edge macro buttons, bottom DPI switch.
 HOTSPOTS: tuple[Hotspot, ...] = (
-    Hotspot(1, 127, 160, 0x01, 0x0001, "Left Click", 0x60, fixed=True),
-    Hotspot(2, 31, 154, 0x01, 0x0002, "Right Click", 0x64),
-    Hotspot(3, 100, 124, 0x01, 0x0004, "Middle / Scroll", 0x68),
-    Hotspot(4, 70, 150, 0x01, 0x0008, "Macro 1 · left (Back)", 0x6C),
-    Hotspot(5, 70, 190, 0x01, 0x0010, "Macro 2 · left (Forward)", 0x70),
-    Hotspot(6, 216, 300, 0x02, 0x0001, "DPI Cycle (bottom)", 0x74),
+    Hotspot(1, 180, 110, 0x01, 0x0001, "Left Click", 0x60, fixed=True),
+    Hotspot(2, 252, 110, 0x01, 0x0002, "Right Click", 0x64),
+    Hotspot(3, 216, 66, 0x01, 0x0004, "Middle / Scroll", 0x68),
+    Hotspot(4, 150, 153, 0x01, 0x0008, "Macro 1 · left (Back)", 0x6C),
+    Hotspot(5, 150, 194, 0x01, 0x0010, "Macro 2 · left (Forward)", 0x70),
+    Hotspot(6, 216, 314, 0x02, 0x0001, "DPI Cycle (bottom)", 0x74),
 )
 
 DIAGRAM_WIDTH = 432

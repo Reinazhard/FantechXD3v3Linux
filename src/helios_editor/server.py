@@ -240,8 +240,6 @@ def make_handler(state: EditorState):
                 self._file(WEB_DIR / "index.html")
             elif p.startswith("/static/"):
                 self._file(WEB_DIR / p[len("/static/"):])
-            elif p == "/assets/mouse.svg":
-                self._file(WEB_DIR / "mouse.svg")
             else:
                 self.send_error(404)
 

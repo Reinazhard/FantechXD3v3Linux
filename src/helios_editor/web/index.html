@@ -69,7 +69,35 @@
             </div>
             <div class="diagram-scroll">
               <div id="diagram-wrap">
-                <img id="mouse" src="/assets/mouse.svg" alt="Helios II XD3v3 mouse diagram">
+                <svg id="mouse" viewBox="0 0 432 356" role="img"
+                     aria-label="Helios II PRO XD3V3 mouse outline diagram">
+                  <!-- Flat M3 line-art of the real device (traced from the official
+                       Fantech top-view render; true aspect 0.529 = 330x624). Narrow
+                       rounded front -> smoothly widening to widest lower-rear ->
+                       rounded tail. Inlined so strokes use pinned M3 roles and
+                       follow data-theme. 432x356 keeps the Config.ini KeyParam
+                       coordinate space; hotspot coords are aligned to each button. -->
+                  <path class="mv-shell" d="M225.9 8.0 C233.2 8.6 242.1 9.7 249.8 11.4 C257.5 13.1 265.9 15.4 272.1 18.2 C278.4 21.0 283.1 24.4 287.4 28.4 C291.7 32.4 295.3 36.3 297.8 42.0 C300.4 47.7 301.8 54.5 302.7 62.4 C303.6 70.3 303.3 80.5 303.2 89.6 C303.1 98.7 302.5 107.7 302.2 116.8 C301.8 125.9 301.3 134.9 301.1 144.0 C300.8 153.1 300.7 162.1 300.5 171.2 C300.4 180.3 299.8 189.3 300.0 198.4 C300.2 207.5 300.7 216.5 301.6 225.6 C302.5 234.7 304.9 243.7 305.4 252.8 C305.9 261.9 306.4 270.9 304.9 280.0 C303.3 289.1 300.6 299.3 296.0 307.2 C291.5 315.1 284.8 321.9 277.5 327.6 C270.3 333.3 261.1 337.8 252.5 341.2 C243.9 344.6 233.6 346.9 225.9 348.0 C218.2 349.1 213.8 349.1 206.1 348.0 C198.4 346.9 188.0 344.6 179.5 341.2 C171.0 337.8 162.2 333.3 155.0 327.6 C147.9 321.9 141.1 315.1 136.5 307.2 C131.9 299.3 128.7 289.1 127.1 280.0 C125.6 270.9 126.6 261.9 127.1 252.8 C127.7 243.7 129.0 234.7 130.4 225.6 C131.8 216.5 134.7 207.5 135.4 198.4 C136.1 189.3 135.0 180.3 134.7 171.2 C134.4 162.1 134.3 153.1 133.6 144.0 C132.9 134.9 131.1 125.9 130.4 116.8 C129.7 107.7 129.5 98.7 129.3 89.6 C129.1 80.5 128.3 70.3 129.3 62.4 C130.3 54.5 132.9 47.7 135.4 42.0 C138.0 36.3 140.5 32.4 144.6 28.4 C148.7 24.4 153.6 21.0 159.9 18.2 C166.1 15.4 174.5 13.1 182.2 11.4 C189.9 9.7 198.8 8.6 206.1 8.0 C213.4 7.4 218.6 7.4 225.9 8.0 Z"/>
+                  <path class="mv-panel" d="M216.0 10.0 L206.1 8.0 L182.2 11.4 L159.9 18.2 L144.6 28.4 L135.4 42.0 L129.3 62.4 L129.3 89.6 L130.4 116.8 L133.6 144.0 L134.7 171.2 L134.7 175.0 L216.0 175.0 Z"/>
+                  <path class="mv-panel" d="M216.0 10.0 L225.9 8.0 L249.8 11.4 L272.1 18.2 L287.4 28.4 L297.8 42.0 L302.7 62.4 L303.2 89.6 L302.2 116.8 L301.1 144.0 L300.5 171.2 L300.5 175.0 L216.0 175.0 Z"/>
+                  <line class="mv-detail" x1="216" y1="16" x2="216" y2="175"/>
+                  <path class="mv-detail" d="M134 175 C170 182 262 182 301 175"/>
+                  <rect class="mv-port" x="208" y="12" width="16" height="6" rx="3"/>
+                  <rect class="mv-wheel" x="206" y="34" width="20" height="60" rx="10"/>
+                  <rect class="mv-wheel-face" x="210" y="39" width="12" height="50" rx="6"/>
+                  <g class="mv-ribs">
+                    <line x1="211" y1="46" x2="221" y2="46"/><line x1="211" y1="52" x2="221" y2="52"/>
+                    <line x1="211" y1="58" x2="221" y2="58"/><line x1="211" y1="64" x2="221" y2="64"/>
+                    <line x1="211" y1="70" x2="221" y2="70"/><line x1="211" y1="76" x2="221" y2="76"/>
+                    <line x1="211" y1="82" x2="221" y2="82"/>
+                  </g>
+                  <!-- two side macro buttons ON the left edge (buttons 4 & 5) -->
+                  <path class="mv-macro" d="M145 136 q-9 2 -9 11 l0 12 q0 9 9 11 Z"/>
+                  <path class="mv-macro" d="M145 177 q-9 2 -9 11 l0 12 q0 9 9 11 Z"/>
+                  <path class="mv-logo" d="M205 330 C209 324 212 324 216 328 C220 324 223 324 227 330 C222 329 219 331 217.5 334 L216 331 L214.5 334 C213 331 210 329 205 330 Z"/>
+                  <rect class="mv-port" x="205" y="309" width="22" height="8" rx="4"/>
+                  <circle class="mv-led" cx="216" cy="313" r="2"/>
+                </svg>
                 <div id="hotspots"></div>
               </div>
             </div>
