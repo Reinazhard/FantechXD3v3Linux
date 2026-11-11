@@ -570,8 +570,16 @@ input[type=range]:focus-visible { outline: 3px solid var(--md-sys-color-secondar
 .switch input:checked + .track::before { transform: translateX(20px); width: 24px; height: 24px; left: 4px; top: 2px;
   background: var(--md-sys-color-on-primary); }
 .sensor-support { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin-top: var(--space-5); }
-.sensor-support .setting-group { margin-bottom: 0; box-shadow: none; background: transparent;
-  border-radius: 0; border-top: 1px solid var(--hairline); padding: var(--space-3) 0 0; }
+.sensor-support .setting-group { margin-bottom: 0; box-shadow: var(--edge-ring);
+  background: var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--soft-hairline); border-radius: var(--md-sys-shape-corner-large);
+  padding: var(--space-3); }
+.sensor-support .setting-group .setting-row { border-bottom: 1px solid var(--soft-hairline);
+  padding: var(--space-2) 0; }
+.sensor-support .setting-group .setting-row:last-of-type { border-bottom: none; }
+.sensor-support #toggles, .sensor-support #debounce,
+.sensor-support .scale { border-top: 1px solid var(--soft-hairline);
+  padding-top: var(--space-2); margin-top: var(--space-1); }
 #panel-profiles .setting-group { background: transparent; box-shadow: none;
   border-top: 1px solid var(--hairline); border-radius: 0; padding: var(--space-3) 0 0; }
 .sensor-support .group-title { color: var(--md-sys-color-on-surface); }
