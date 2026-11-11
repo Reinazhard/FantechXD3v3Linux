@@ -576,10 +576,13 @@ input[type=range]:focus-visible { outline: 3px solid var(--md-sys-color-secondar
   padding: var(--space-3); }
 .sensor-support .setting-group .setting-row { border-bottom: 1px solid var(--soft-hairline);
   padding: var(--space-2) 0; }
-.sensor-support .setting-group .setting-row:last-of-type { border-bottom: none; }
+.sensor-support .setting-group .setting-row:not(:has(~ .setting-row)) { border-bottom: none; }
 .sensor-support #toggles, .sensor-support #debounce,
 .sensor-support .scale { border-top: 1px solid var(--soft-hairline);
   padding-top: var(--space-2); margin-top: var(--space-1); }
+.sensor-support .setting-group .setting-row + #toggles { border-top: none; }
+.sensor-support .setting-group #toggles + .setting-row {
+  border-top: 1px solid var(--soft-hairline); }
 #panel-profiles .setting-group { background: transparent; box-shadow: none;
   border-top: 1px solid var(--hairline); border-radius: 0; padding: var(--space-3) 0 0; }
 .sensor-support .group-title { color: var(--md-sys-color-on-surface); }
