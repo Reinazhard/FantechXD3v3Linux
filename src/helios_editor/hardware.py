@@ -31,6 +31,7 @@ from .transport import Transport, TransportError
 VID = 0x3554
 PID = 0xF535
 CONFIG_INTERFACE_NUMBER = 1
+SUPPORTED_PIDS = (0xF535, 0xF536, 0xF537)   # dongle, wired USB-C, 4K dongle
 
 # Startup unlock. These are the two 4-byte "password" words the vendor app
 # sends as EncryptionData (cmd 1); captured verbatim from startup-handshake and
@@ -56,22 +57,39 @@ HIDIOCGFEATURE = _ioc(_IOC_WRITE | _IOC_READ, 'H', 0x07, P.REPORT_LEN)
 def find_config_hidraw() -> str | None:
     """Locate the hidraw node for the device's config interface (interface 1).
 
-    Matches by VID/PID and interface number read from sysfs, so it works even
-    when hidraw numbering changes.
+    Accepts every Fantech Helios II XD3v3 PID: 2.4 GHz dongle (0xF535 / 4K
+    0xF537) and wired USB-C (0xF536). Bluetooth exposes no vendor HID config
+    interface and is intentionally NOT matched. Matches by VID/PID and
+    interface number read from sysfs, so it works despite hidraw renumbering.
     """
     for path in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
         try:
             uevent = open(os.path.join(path, "device", "uevent")).read()
         except OSError:
             continue
-        if not all(s in uevent for s in (f"{VID:04X}", f"{PID:04X}")):
+        vid = pid = None
+        for tok in uevent.split():
+            if tok.startswith("HID_ID="):
+                parts = tok.split(":")
+                if len(parts) == 3:
+                    try:
+                        bus, vid, pid = (int(parts[0][7:], 16), int(parts[1], 16),
+                                         int(parts[2], 16))
+                    except ValueError:
+                        continue
+        if vid is None:  # uevent lacked HID_ID=; fall back to substring form
+            upper = uevent.upper()
+            if not (f"{VID:04X}" in upper and
+                    any(f"{p:04X}" in upper for p in SUPPORTED_PIDS)):
+                continue
+            real = os.path.realpath(os.path.join(path, "device"))
+            if f":1.{CONFIG_INTERFACE_NUMBER}" in real:
+                return "/dev/" + os.path.basename(path)
             continue
-        # HID_UNIQ / HID_PHYS / modalias; interface lives in the parent path
-        real = os.path.realpath(os.path.join(path, "device"))
+        if vid != VID or pid not in SUPPORTED_PIDS:
+            continue
         # e.g. .../1-3:1.1/0003:3554:F535.0003 -> interface 1
-        for part in real.split(os.sep):
-            if ":" in part and part.endswith(tuple(f".{i}" for i in range(4))):
-                pass
+        real = os.path.realpath(os.path.join(path, "device"))
         if f":1.{CONFIG_INTERFACE_NUMBER}" in real or f":1.{CONFIG_INTERFACE_NUMBER}/" in real:
             return "/dev/" + os.path.basename(path)
     return None
@@ -382,16 +400,18 @@ class HIDTransport(Transport):
 
     # --- Transport interface (whole-profile apply) ---
 
-    def read_profile(self) -> ButtonProfile:
+    def read_profile(self) -> ButtonProfile | None:
         """Read the confirmable flash fields into a ButtonProfile.
 
         Flash layout was reconstructed from the cmd-8 sweep (see
         docs/HARDWARE.md). Reads require the two-password startup unlock.
+        Returns None when the device is unreachable (asleep / link down) so
+        callers never mistake factory defaults for the device's real state.
         """
         with self._io_lock:
             return self._read_profile_locked()
 
-    def _read_profile_locked(self) -> ButtonProfile:
+    def _read_profile_locked(self) -> ButtonProfile | None:
         profile = ButtonProfile()
         s = profile.settings
         if self.dry_run:
@@ -401,9 +421,9 @@ class HIDTransport(Transport):
             self.unlock()
         except TransportError:
             # Unlock failed (mouse asleep / link down). Do NOT cache defaults
-            # as the device state: a later Apply would full-write against a
-            # wrong baseline. Leave _device_state as-is.
-            return profile
+            # as the device state and do NOT return a fake profile: the caller
+            # must keep its previous state. Leave _device_state as-is.
+            return None
         from .model import HOTSPOTS, MAX_DPI_STAGES, Binding
         try:
             rr = self.read_flash(P.ADDR_REPORT_RATE, 2)[0]

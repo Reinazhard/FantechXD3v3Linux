@@ -83,7 +83,7 @@ class EditorState:
         # Try to show the device's real state; an unplugged/unreadable backend
         # falls back to a default profile so the editor stays usable.
         try:
-            self.profile = transport.read_profile()
+            self.profile = transport.read_profile() or ButtonProfile()
         except TransportError:
             self.profile = ButtonProfile()
         self.applied = self.profile.to_dict()
@@ -331,8 +331,13 @@ def make_handler(state: EditorState):
                     state.applied = state.profile.to_dict()
                     self._json({"ok": True, "transport": state.transport.describe(), "dirty": False})
                 elif p == "/api/load":
-                    state.profile = state.transport.read_profile()
-                    state.applied = state.profile.to_dict()
+                    loaded = state.transport.read_profile()
+                    if loaded is None:
+                        self._json({"error": "TRANSPORT_ERROR",
+                                    "detail": "Mouse is asleep or disconnected; move the mouse and retry."}, 502)
+                        return
+                    state.profile = loaded
+                    state.applied = loaded.to_dict()
                     self._json({"ok": True, "profile": state.profile.to_dict(), "dirty": False})
                 elif p == "/api/import":
                     state.profile = ButtonProfile.from_dict(body)

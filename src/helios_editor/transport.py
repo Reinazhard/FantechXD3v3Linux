@@ -25,8 +25,12 @@ class Transport(ABC):
     """Minimal contract the editor needs from a device backend."""
 
     @abstractmethod
-    def read_profile(self) -> ButtonProfile:
-        """Load the profile currently stored on the device."""
+    def read_profile(self) -> ButtonProfile | None:
+        """Load the profile currently stored on the device.
+
+        Returns None when the device is unreachable; callers must not treat
+        that as a real (default) profile.
+        """
 
     @abstractmethod
     def write_profile(self, profile: ButtonProfile) -> None:
