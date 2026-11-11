@@ -1,37 +1,78 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 432 356" width="432" height="356">
-  <!-- Helios II XD3v3: 6 physical buttons. 432x356 matches vendor 设备1.png
-       and the Config.ini KeyParam1..6 coordinate space. Our own clean drawing. -->
+  <!-- Helios II PRO XD3V3 (4K). Reverse-engineered from the Fantech product page
+       3D model 3DModels_HeliosIIProXD3V3.glb (glTF 2.0, Shopify <model-viewer>):
+       neutral graphite shell, "HELIOS II" wordmark, orange PRO badge, 4K dongle,
+       bottom P/N label (embedded textures tex0/tex1). 432x356 keeps the SAME
+       Config.ini KeyParam1..6 coordinate space so all 6 hotspots stay aligned. -->
   <defs>
     <linearGradient id="shell" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3a3f47"/><stop offset="1" stop-color="#1c2026"/>
+      <stop offset="0" stop-color="#4a4f57"/><stop offset="0.55" stop-color="#2e333b"/><stop offset="1" stop-color="#191d23"/>
+    </linearGradient>
+    <linearGradient id="click" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#565b64"/><stop offset="1" stop-color="#343941"/>
+    </linearGradient>
+    <linearGradient id="wheel" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0c0f12"/><stop offset="0.5" stop-color="#3a3f47"/><stop offset="1" stop-color="#0c0f12"/>
     </linearGradient>
     <radialGradient id="dpiLed" cx="50%" cy="50%" r="50%">
-      <stop offset="0" stop-color="#ff5a2a"/><stop offset="1" stop-color="#7a2408"/>
+      <stop offset="0" stop-color="#ffb087"/><stop offset="0.5" stop-color="#f7a06a"/><stop offset="1" stop-color="#b8531a"/>
     </radialGradient>
+    <linearGradient id="dongle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3f47"/><stop offset="1" stop-color="#14171c"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.14"/><stop offset="0.4" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
   </defs>
-  <!-- body -->
+
+  <!-- USB-C 4K dongle (Pro's distinguishing hardware), behind the body -->
+  <g>
+    <rect x="196" y="0" width="40" height="14" rx="4" fill="url(#dongle)" stroke="#0a0c0e" stroke-width="1.5"/>
+    <rect x="210" y="2" width="12" height="4" rx="2" fill="#0a0c0e"/>
+    <text x="216" y="12" text-anchor="middle" font-family="sans-serif" font-size="6" letter-spacing="0.5" fill="#c9ccd1">4K</text>
+  </g>
+
+  <!-- main body: same silhouette as vendor 设备1.png / regular XD3v3 -->
   <path d="M120 18 C58 18 26 68 26 172 C26 272 58 334 216 334
            C374 334 406 272 406 172 C406 68 374 18 312 18 Z"
-        fill="url(#shell)" stroke="#0d0f12" stroke-width="3"/>
+        fill="url(#shell)" stroke="#0b0d10" stroke-width="3"/>
+  <!-- soft top sheen (3D lighting cue, from the GLB's glossy material) -->
+  <path d="M120 18 C58 18 26 68 26 172 C26 272 58 334 216 334
+           C374 334 406 272 406 172 C406 68 374 18 312 18 Z" fill="url(#sheen)"/>
+  <!-- side walls (subtle extrusion, gives depth even before CSS 3D tilt) -->
+  <path d="M26 172 C26 272 58 334 216 334 C374 334 406 272 406 172
+           L406 186 C406 286 374 346 216 346 C58 346 26 286 26 186 Z"
+        fill="#0e1115" opacity="0.55"/>
+
   <!-- L/R click split -->
-  <path d="M216 18 L216 150" stroke="#0d0f12" stroke-width="3"/>
+  <path d="M216 18 L216 150" stroke="#0b0d10" stroke-width="3"/>
   <path d="M120 20 C88 20 60 40 48 80 L48 150 L216 150 L216 20 Z"
-        fill="#454b55" stroke="#0d0f12" stroke-width="2"/>
+        fill="url(#click)" stroke="#0b0d10" stroke-width="2"/>
   <path d="M312 20 C344 20 372 40 384 80 L384 150 L216 150 L216 20 Z"
-        fill="#454b55" stroke="#0d0f12" stroke-width="2"/>
+        fill="url(#click)" stroke="#0b0d10" stroke-width="2"/>
+
   <!-- scroll wheel (button 3) -->
-  <rect x="205" y="50" width="22" height="58" rx="11" fill="#111418" stroke="#0a0c0e" stroke-width="2"/>
-  <rect x="209" y="58" width="14" height="42" rx="7" fill="#2b3038"/>
-  <!-- two right-side macro buttons (buttons 4 & 5) -->
+  <rect x="205" y="50" width="22" height="58" rx="11" fill="url(#wheel)" stroke="#080a0c" stroke-width="2"/>
+  <rect x="209" y="58" width="14" height="42" rx="7" fill="#23272e"/>
+  <line x1="216" y1="60" x2="216" y2="98" stroke="#0a0c0e" stroke-width="1" opacity="0.6"/>
+
   <!-- two LEFT-side macro buttons (buttons 4 & 5) -->
   <path d="M182 132 q-30 -8 -44 4 l4 18 q24 -8 44 -4 Z" fill="#2b3038" stroke="#0a0c0e" stroke-width="2"/>
   <path d="M182 158 q-30 -8 -44 4 l4 18 q24 -8 44 -4 Z" fill="#2b3038" stroke="#0a0c0e" stroke-width="2"/>
-  <!-- bottom DPI cycle button (button 6) + its LED indicator -->
+
+  <!-- bottom DPI cycle button (button 6) + LED -->
   <rect x="188" y="292" width="56" height="16" rx="8" fill="#111418" stroke="#0a0c0e" stroke-width="2"/>
   <circle cx="216" cy="300" r="5" fill="url(#dpiLed)"/>
-  <!-- logo -->
-  <text x="216" y="235" text-anchor="middle" font-family="sans-serif" font-size="13"
-        letter-spacing="2" fill="#6b7280">HELIOS II</text>
-  <!-- USB-C port hint -->
-  <rect x="204" y="14" width="24" height="7" rx="3" fill="#0a0c0e"/>
+
+  <!-- HELIOS II wordmark + orange PRO badge (from GLB texture tex1) -->
+  <text x="196" y="236" text-anchor="middle" font-family="sans-serif" font-size="13"
+        letter-spacing="2" fill="#8b9099">HELIOS II</text>
+  <g>
+    <rect x="238" y="222" width="34" height="18" rx="4" fill="#f7a06a"/>
+    <text x="255" y="235" text-anchor="middle" font-family="sans-serif" font-size="10"
+          font-weight="700" letter-spacing="0.5" fill="#1b1918">PRO</text>
+  </g>
+  <!-- bottom P/N label hint (from GLB texture tex1) -->
+  <text x="216" y="266" text-anchor="middle" font-family="sans-serif" font-size="7"
+        letter-spacing="1.5" fill="#5a5f68">XD3V3 · 4K</text>
 </svg>

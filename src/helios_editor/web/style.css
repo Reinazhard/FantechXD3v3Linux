@@ -391,7 +391,15 @@ button.danger { background: transparent; border-color: transparent; color: var(-
 .selection-pill { font-size: 11px; color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container);
   border: 1px solid var(--md-sys-color-outline-variant); padding: 4px 10px; border-radius: var(--md-sys-shape-corner-full); white-space: nowrap; }
 .selection-pill.active { border-color: var(--md-sys-color-primary); color: var(--md-sys-color-primary); }
-.diagram-scroll { height: 249px; overflow: hidden; margin-top: var(--space-3); position: relative; }
+/* ---- CSS-3D presentation of the reverse-engineered Helios II PRO XD3V3 ----
+   Offline, zero-dependency stand-in for the Shopify <model-viewer> GLB. Depth is
+   a perspective context + a grounded drop-shadow + the SVG's own sheen/side-wall
+   gradients (layered lighting), NOT a transform on #diagram-wrap: the 6 fixed
+   hotspots share that parent, so its transform MUST stay exactly scale(0.70) to
+   preserve the Config.ini KeyParam coordinate space and the ~302x249 visual box.
+   WebGL/CDN/model-viewer are deliberately avoided (zero-build + offline). */
+.diagram-scroll { height: 249px; overflow: hidden; margin-top: var(--space-3);
+  position: relative; perspective: 1400px; perspective-origin: 50% 30%; }
 /* Rectilinear 24px MEASUREMENT grid + one optical-center tick (Buttons view
    ONLY). 1px orthogonal guides on the pinned 4px scale ground the backdrop
    in the device's X/Y measurement semantics; concentric rings were rejected
@@ -408,12 +416,15 @@ button.danger { background: transparent; border-color: transparent; color: var(-
    calibration surface with only margins visible; geometry is unchanged. */
 .diagram-scroll::before, .diagram-scroll::after { z-index: 0; }
 #diagram-wrap { position: relative; z-index: 1; width: 432px; height: 356px;
-  transform: scale(0.70); transform-origin: top left; }
+  transform: scale(0.70); transform-origin: top left;
+  filter: drop-shadow(0 14px 12px color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent)); }
 #mouse { width: 432px; height: 356px; display: block; user-select: none; }
 .hotspot { position: absolute; width: 32px; height: 32px; margin: -16px 0 0 -16px;
   border-radius: var(--md-sys-shape-corner-full); border: none; background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface); font-weight: 700; display: flex; align-items: center;
-  justify-content: center; cursor: pointer; box-shadow: var(--md-sys-elevation-1);
+  justify-content: center; cursor: pointer;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--md-sys-color-on-surface) 28%, transparent),
+              var(--md-sys-elevation-1);
   transition: transform var(--motion-duration-fast) var(--motion-ease-out),
               background-color var(--motion-duration-fast) var(--motion-ease-standard),
               box-shadow var(--motion-duration-standard) var(--motion-ease-out); }
