@@ -92,6 +92,10 @@ class EditorState:
         self._sync_failures = 0
         self._sync_generation = 0        # bumped whenever device state is observed
         self._sync_message = "starting"
+        # At process start read_profile() may have returned factory defaults
+        # because the mouse was offline/asleep. A later online transition must
+        # re-read the real config ONCE, but only while there is no user draft.
+        self._boot_load_pending = True
         self._stop = threading.Event()
 
     def snapshot(self) -> dict[str, Any]:
@@ -133,6 +137,23 @@ class EditorState:
                 self._sync_failures += 1
                 self._sync_message = "device unavailable (retrying)"
                 return False
+            # First online transition: re-read the full device profile once.
+            # read_active_dpi() succeeding means unlock() succeeded (device is
+            # awake), so read_profile() reads real flash, not cached defaults.
+            # Consume the one-shot on the FIRST successful online tick even when
+            # a draft exists: a later tick must never auto-load over user edits.
+            if self._boot_load_pending:
+                self._boot_load_pending = False
+                if not self.have_draft():
+                    try:
+                        loaded = self.transport.read_profile()
+                    except TransportError:
+                        loaded = None
+                    if loaded is not None:
+                        self.profile = loaded
+                        self.applied = loaded.to_dict()
+                        self._sync_generation += 1
+                        self._sync_message = "loaded settings from mouse"
             changed = False
             if self.profile.settings.active_dpi_index != idx:
                 self.profile.settings.active_dpi_index = idx
