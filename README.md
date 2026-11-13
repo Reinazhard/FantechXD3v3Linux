@@ -21,25 +21,29 @@ to the device over the Linux `hidraw` HID feature-report interface.
 * Polling rate, LOD, click debounce, motion sync, angle snapping, ripple
   control, **HP/LP sensor mode**, per-stage DPI/LED — all written to onboard
   flash with ACK verification (no silent false successes).
-* **DPI cycling from the app**: click a stage tab to make it the active DPI
-  (staged, Apply to write); the bottom hardware button still cycles via its
-  default "DPI Loop" binding.
+* Stage tabs select WHICH stage's DPI/LED to edit; the active DPI stage is
+  device-owned (set by the bottom hardware button, shown read-only as `● on`).
+  Polling rates are gated by the detected receiver: the 1K dongle/wired mouse
+  expose 125–1000 Hz, the 4K dongle additionally 2000/4000 Hz.
 * **Preview before Apply**: a "Pending changes" panel lists exactly which
   flash records Apply will write (old -> new bytes). Apply is **delta-only**:
   one edit writes one record, a no-op writes nothing — no device lag.
   Discard reverts the draft.
-* **Automated sync (no Reload needed)**: a server-side background thread
-  polls the device every 2s even with no browser tab open. Pressing the
-  bottom DPI-cycle button updates the web stage selection automatically
-  (device-observed state is MERGED, user drafts are preserved). Manual
-  Reload still asks before discarding a draft.
+* **Automated sync (no Reload needed)**: the backend is the sole authority
+  and pushes state changes to the WebUI over Server-Sent Events (`/api/events`,
+  stdlib only). A server-side background thread still polls the device (~2s)
+  even with no browser tab open; pressing the bottom DPI-cycle button updates
+  the WebUI automatically (device-observed state is MERGED, user drafts are
+  preserved). Polling-based `/api/sync-status` remains as an SSE fallback.
 * Live connection mode (wired USB-C / 2.4 GHz dongle) and battery % + voltage.
   Bluetooth is reported as **not detectable** (it exposes no vendor HID config
   interface) rather than guessed.
 * Profile import / export / restore; simulated backend for hardware-free use.
 
-The protocol was recovered from 29 USBPcap captures and verified end-to-end on
-a real device (read → write → read-back). Full evidence:
+The protocol was recovered from 29 USBPcap captures (0.2.0 validated the
+capture-confirmed encoder end-to-end on a real device). The reliability and
+UI changes in this release are SIMULATED-verified only; no physical
+read → write → read-back was performed for them. Full evidence:
 [docs/HARDWARE.md](docs/HARDWARE.md), [docs/PROTOCOL.md](docs/PROTOCOL.md),
 [docs/EVIDENCE.md](docs/EVIDENCE.md), [docs/CAPTURE_GUIDE.md](docs/CAPTURE_GUIDE.md).
 
@@ -71,11 +75,14 @@ Open <http://127.0.0.1:8765>. The server binds to `127.0.0.1` by default; use
 `--host` explicitly if you need another interface (see [SECURITY.md](SECURITY.md)).
 
 `--real` autodetects the config interface by VID/PID `3554:f535` (2.4 GHz
-dongle) or `3554:f536` (wired). It sends only confirmed `WriteFlashData`
-records; the two-password startup unlock and an interleaved poll clock keep
+dongle), `3554:f536` (wired), or `3554:f537` (4K dongle). It sends only
+confirmed `WriteFlashData` records; the two-password startup unlock and an
+interleaved poll clock keep
 the firmware servicing commands. Apply reports success only after **every
-changed** flash record is acknowledged; on a sleeping mouse it fails loudly
-and keeps changes flagged as unsaved. A single-field edit writes one record.
+changed** flash record is acknowledged AND read back from flash (a mismatch
+returns HTTP 502 — no false success); on a sleeping mouse it fails loudly and
+keeps changes flagged as unsaved. A single-field edit writes one record.
+Running with no arguments starts the server in real-device mode.
 
 ### CLI examples (installed console script)
 
@@ -96,10 +103,10 @@ src/helios_editor/
   protocol.py   capture-confirmed 17-byte HID report encoder (checksum, addr)
   hardware.py   real hidraw transport (HIDIOCSFEATURE) + device autodetect
   transport.py  Transport base + Simulated + lazy real re-export
-  server.py     stdlib HTTP JSON API
+  server.py     stdlib HTTP JSON API + SSE /api/events + authoritative state
   cli.py        serve / probe / validate / show
-  web/          visual editor (HTML/CSS/JS + 432x356 mouse SVG)
-tests/          pytest suite (no hardware required)
+  web/          MD3 Expressive visual editor (HTML/CSS/JS + 432x356 mouse SVG)
+tests/          pytest suite (no hardware required; 74 tests)
 docs/           HARDWARE, PROTOCOL, EVIDENCE, CAPTURE_GUIDE
 udev/           50-helios-ii.rules
 captures/       USBPcap evidence (gitignored; supply your own)
@@ -112,10 +119,11 @@ python -m pip install pytest
 PYTHONPATH=src python -m pytest tests/ -q
 ```
 
-50 tests cover the encoder (243/243 captured frames reproduced byte-for-byte),
-the corrected hardware contract, the startup unlock, the poll clock, the
-multi-report echo queue, delta writes, preview, HP/LP mode and auto-sync
-safety. No device is needed.
+74 tests cover the capture-pinned encoder (14 golden-frame tests), the
+corrected hardware contract, the startup unlock, the poll clock, the
+multi-report echo queue, delta writes, preview, HP/LP mode, post-write
+read-back, SSE state delivery, reconnect, and auto-sync safety. No device is
+needed.
 
 ## Known limitations
 

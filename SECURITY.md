@@ -12,6 +12,9 @@ authentication** and allows writing to a connected mouse. If you pass
 `--host 0.0.0.0` (or any non-loopback address), anyone who can reach that port
 can change device settings. Keep it on loopback. If you need remote access,
 put it behind an authenticated reverse proxy and a firewall.
+Live state updates use a long-lived Server-Sent Events connection
+(`/api/events`); a reverse proxy MUST NOT buffer `text/event-stream` (the
+server sets `X-Accel-Buffering: no`, and the client falls back to polling).
 
 ## Supported versions
 
@@ -32,8 +35,9 @@ private USB captures or personal data.
 
 * The tool writes configuration flash records via HID feature reports. An
   interrupted write can leave a partially updated profile. Apply reports
-  success only after every record is acknowledged; a failed Apply is reported
-  loudly.
+  success only after every changed record is acknowledged AND read back from
+  flash (a mismatch yields HTTP 502); a failed Apply is reported loudly and
+  the draft stays unsaved.
 * No firmware-update, bootloader, or flash-erase commands are ever sent.
 * `--real --dry-run` builds reports without performing any ioctl — use it to
   inspect behaviour safely.

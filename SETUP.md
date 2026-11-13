@@ -4,9 +4,10 @@
 
 * Linux with `hidraw` support (standard on any modern distribution).
 * Python ≥ 3.10.
-* The Fantech Helios II XD3v3 connected via **wired USB-C** or its **2.4 GHz
-  USB dongle**. Bluetooth exposes no vendor HID config interface and is not
-  supported for configuration.
+* The Fantech Helios II XD3v3 connected via **2.4 GHz USB dongle** (1K
+  `3554:f535`, 4K `3554:f537`) or **wired USB-C** (`3554:f536`). Bluetooth
+  exposes no vendor HID config interface and is not supported for
+  configuration.
 
 No kernel module and no third-party Python packages are needed at runtime.
 
@@ -59,6 +60,8 @@ helios-editor serve --real --dry-run   # build reports, no ioctl
 
 Open <http://127.0.0.1:8765>. The UI binds to loopback only; see
 [SECURITY.md](SECURITY.md) before changing `--host`.
+Running `helios-editor` with no arguments starts the server in real-device
+mode (equivalent to `serve --real`).
 
 ## Troubleshooting
 
