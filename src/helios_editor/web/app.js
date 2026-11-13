@@ -37,7 +37,8 @@ let applied = null;            // local applied-baseline reconstruction (change 
 let selectedButton = null;
 let searchTerm = "";
 let pendingFn = null;
-let activeStage = 0;
+let activeStage = 0;           // which stage's DPI/LED we are editing (user choice)
+let activeStageInitialized = false;
 let sliderDraft = null;        // transient DPI value not yet committed
 let categoryFilter = null;     // active function-category filter (Phase 3)
 let writeStatus = "idle";      // idle|writing|success|error|reconciling (visible result)
@@ -50,6 +51,38 @@ const inFlightMutations = new Set();
 
 const $ = (id) => document.getElementById(id);
 const clone = (o) => JSON.parse(JSON.stringify(o));
+
+/* M3 slider: paint the active/inactive track split (--fill) and value
+   indicator. The native range input remains the accessible drag/keyboard
+   driver; this only paints its M3 presentation. */
+function paintM3Slider(input, suffix = "") {
+  if (!input) return;
+  const min = Number(input.min || 0), max = Number(input.max || 100);
+  const val = Number(input.value);
+  const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
+  const fill = Math.min(100, Math.max(0, pct)) + "%";
+  input.style.setProperty("--fill", fill);
+  const wrap = input.closest(".m3-slider");
+  if (wrap) wrap.style.setProperty("--fill", fill);
+  const tip = $(input.id + "-tooltip");
+  if (tip) tip.textContent = val + suffix;
+}
+
+function initM3Slider(inputId, suffix = "") {
+  const input = $(inputId);
+  if (!input) return;
+  const wrap = input.closest(".m3-slider");
+  const show = () => { if (wrap) wrap.classList.add("show-value"); paintM3Slider(input, suffix); };
+  const hide = () => { if (wrap) wrap.classList.remove("show-value"); };
+  input.addEventListener("pointerdown", show);
+  input.addEventListener("focus", show);
+  input.addEventListener("blur", hide);
+  input.addEventListener("pointerup", hide);
+  input.addEventListener("pointercancel", hide);
+  // Keyboard / programmatic value changes still update the track + tooltip.
+  input.addEventListener("input", () => paintM3Slider(input, suffix));
+  paintM3Slider(input, suffix);
+}
 
 /* Reusable confirmation dialog: focus trap, Escape cancels, Enter confirms,
    focus restoration to the opener. Returns a Promise<boolean>. */
@@ -227,9 +260,6 @@ async function refreshPending() {
   }
 }
 
-/* Legacy alias for any older call sites. */
-async function refreshPreview() { return refreshPending(); }
-
 /* Popover open/close with aria-expanded, Escape, outside click. */
 function initPendingPopover() {
   const btn = $("pending-indicator"), pop = $("pending-popover");
@@ -301,7 +331,6 @@ function renderDeviceIdentity() {
   const label = friendlyTransport();
   $("backend").textContent = label;
   $("device-label").textContent = label;
-  $("pill-conn").textContent = label;
   $("link-dot").classList.toggle("sim", !isRealHid());
 }
 
@@ -310,10 +339,7 @@ function renderDeviceIdentity() {
 function renderConnection(st) {
   if (!st) return;
   window.__lastConnection = st.connection || "";
-  let connKey;
-  if (st.online) connKey = "connected";
-  else if (st.connection === "simulated") connKey = "disconnected";
-  else connKey = "disconnected";
+  const connKey = st.online ? "connected" : "disconnected";
   $("conn-state").setAttribute("data-state", connKey);
   $("conn-text").textContent = UI_TEXT.conn[connKey];
   const batt = $("pill-batt");
@@ -327,7 +353,6 @@ function renderConnection(st) {
   }
   $("offline-hint").hidden = !!st.online;
   if (!st.online) $("offline-hint").textContent = UI_TEXT.conn.hintOffline;
-  $("pill-conn").title = "";               // no VID/PID/hidraw/note in tooltip
   console.log("status note:", st.note);    // diagnostic only, never in DOM
 }
 
@@ -386,12 +411,26 @@ function renderBindingsList() {
   list.innerHTML = "";
   for (const h of state.catalog.hotspots) {
     const row = document.createElement("div");
+    const reserved = h.id === 1 || h.fixed === true;
     row.className = "binding-row"
       + (selectedButton === h.id ? " selected" : "")
-      + (changed.has(h.id) ? " changed" : "");
+      + (changed.has(h.id) ? " changed" : "")
+      + (reserved ? " reserved" : "");
     row.innerHTML = `<span class="num">${h.id}</span><span class="blabel">${UI_TEXT.buttonNames[h.id] || h.label}</span>`
       + `<span class="bval">${bindingLabel(h.id)}</span>`;
-    row.onclick = () => { selectButton(h.id); switchTab("buttons"); };
+    if (reserved) {
+      row.title = UI_TEXT.reservedHint;
+      row.setAttribute("aria-disabled", "true");
+    } else {
+      row.onclick = () => { selectButton(h.id); switchTab("buttons"); };
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.onkeydown = (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault(); selectButton(h.id); switchTab("buttons");
+        }
+      };
+    }
     list.appendChild(row);
   }
   $("binding-count").textContent = `${state.catalog.hotspots.length} buttons`;
@@ -429,17 +468,9 @@ function renderEditor() {
 }
 
 /* Function categories derived from KEY_FUNCTIONS.type; only populated ones
-   are shown. Values mirror catalog KC_* constants (catalog.py:38-48). */
+   are shown. The server (catalog.categories) is the single source. */
 function categoryOf(type) {
-  switch (type) {
-    case 0x00: return "Disabled";
-    case 0x01: return "Mouse functions";
-    case 0x02: case 0x0A: case 0x08: return "Special functions";
-    case 0x03: case 0x0B: return "System functions";
-    case 0x05: return "Multimedia";
-    case 0x04: case 0x06: case 0x07: return "Keyboard functions";
-    default: return "Other";
-  }
+  return (state.catalog.categories && state.catalog.categories[type]) || "Other";
 }
 
 function renderCategories() {
@@ -535,7 +566,12 @@ function renderSensor() {
   const s = state.profile.settings;
   const rateSeg = $("rate-seg");
   rateSeg.innerHTML = "";
+  const supportedRates = (state.capabilities && state.capabilities.reportRates)
+    ? state.capabilities.reportRates : null;
   for (const r of state.catalog.reportRates) {
+    // Hide polling rates the connected receiver cannot carry (backend is the
+    // sole authority). When capability data is absent, show the full catalog.
+    if (supportedRates && !supportedRates.includes(r.value)) continue;
     const b = document.createElement("button");
     b.className = "seg" + (s.report_rate === r.value ? " active" : "");
     b.textContent = r.label;
@@ -555,7 +591,7 @@ function renderSensor() {
   }
   const modeSeg = $("mode-seg");
   modeSeg.innerHTML = "";
-  for (const m of (state.catalog.sensorModes || [{value:0,label:"LP"},{value:1,label:"HP"}])) {
+  for (const m of state.catalog.sensorModes) {
     const b = document.createElement("button");
     b.className = "seg" + (s.sensor_mode === m.value ? " active" : "");
     b.textContent = m.label;
@@ -565,6 +601,7 @@ function renderSensor() {
   }
   $("mode-desc").textContent = UI_TEXT.modeDesc[s.sensor_mode] || "";
   $("debounce").value = s.debounce_ms;
+  paintM3Slider($("debounce"), " ms");
   $("debounce-val").textContent = s.debounce_ms + " ms";
   $("debounce-warn").hidden = s.debounce_ms >= 4;
   renderDpiStages();
@@ -623,18 +660,13 @@ function renderDpiStages() {
     const isActive = i === s.active_dpi_index;
     b.innerHTML = `<span class="swatch" style="background:${rgbHex(s.dpi_colors[i])}"></span>`
       + `S${i + 1} · ${v}` + (isActive ? ` <span class="dim">● on</span>` : "");
-    b.title = "Click to make this the active DPI stage (staged; Apply to write)";
-    b.onclick = async () => {
+    b.title = "Select this stage to edit its DPI and LED color. The active stage is set by the mouse's DPI button.";
+    b.onclick = () => {
+      // Stage tabs select WHICH stage to edit. The active DPI stage is
+      // device-controlled (physical DPI button); software never writes it.
       activeStage = i; sliderDraft = null;
       const num0 = $("dpi-numeric"); if (num0) num0.value = "";
-      return mutate(async () => {
-        try {
-          const j = await api("/api/dpi-active", { stage: i });
-          state.profile = j.profile; syncDirty(); refreshPending();
-          setStatus(`Active DPI stage → S${i + 1} (${v} DPI) · Apply to write`, "ok");
-        } catch (e) { console.error(e); }
-        renderDpiStages();
-      });
+      renderDpiStages();
     };
     tabs.appendChild(b);
   });
@@ -642,6 +674,7 @@ function renderDpiStages() {
   sl.min = d.min; sl.max = d.max; sl.step = d.step;
   const shown = sliderDraft !== null ? sliderDraft : s.dpi_stages[activeStage];
   sl.value = shown;
+  paintM3Slider(sl);
   $("dpi-value").textContent = shown;
   $("dpi-saved").hidden = sliderDraft === null;
   const num = $("dpi-numeric");
@@ -699,6 +732,7 @@ function initDpiControls() {
     sliderDraft = check.value;
     $("dpi-value").textContent = check.value;
     sl.value = check.value;               // slider + numeric + accepted value synced
+    paintM3Slider(sl);
     $("dpi-saved").hidden = false;
     // Enter + blur can both fire change; do not POST again when the value
     // already equals the committed stage (no duplicate /api/dpi request).
@@ -719,7 +753,6 @@ function initDpiControls() {
     };
   }
   sl.onchange = commitDpi;
-  $("dpi-save").onclick = () => { if (num) onNumeric(); else commitDpi(); };
 }
 
 /* Compact 14-color popover; /api/dpi-color mapping unchanged. */
@@ -768,17 +801,15 @@ function renderToggles() {
 
 async function patchSettings(patch, kind, uiUpdate) {
   return mutate(async () => {
-    Object.assign(state.profile.settings, patch);
-    if (uiUpdate) uiUpdate();
-    if (kind === "debounce") {
-      $("debounce-val").textContent = state.profile.settings.debounce_ms + " ms";
-      $("debounce-warn").hidden = state.profile.settings.debounce_ms >= 4;
-    }
-    syncDirty();
     try {
       const j = await api("/api/settings", patch);
       state.profile = j.profile;
-      syncDirty();
+      if (uiUpdate) uiUpdate();
+      if (kind === "debounce") {
+        $("debounce-val").textContent = state.profile.settings.debounce_ms + " ms";
+        $("debounce-warn").hidden = state.profile.settings.debounce_ms >= 4;
+      }
+      renderAll();
       refreshPending();
     } catch (e) { console.error(e); }
   });
@@ -814,14 +845,19 @@ function renderAll() {
   syncDirty();
 }
 
-/* Reload the authoritative state. applied is reconstructed from the returned
-   profile ONLY when dirty === false; when dirty === true retain the baseline. */
+/* Reload the authoritative state. applied is the server-provided confirmed
+   baseline; the WebUI NEVER reconstructs config locally. */
 async function refreshState() {
   const fresh = await api("/api/state");
   state = fresh;
   serverDirty = fresh.dirty;
-  if (fresh.dirty === false) applied = clone(fresh.profile);
-  activeStage = fresh.profile.settings.active_dpi_index;
+  applied = clone(fresh.confirmed);
+  // Seed the edit target ONCE from the hardware-active stage; thereafter the
+  // user's stage-tab choice persists. Hardware active_dpi_index is display-only.
+  if (!activeStageInitialized) {
+    activeStage = fresh.profile.settings.active_dpi_index;
+    activeStageInitialized = true;
+  }
   sliderDraft = null;
   renderAll();
   return fresh;
@@ -855,7 +891,9 @@ async function apply() {
     console.log("apply snapshot (diagnostic only):", snapshot.settings.dpi_stages);
     // 6. WRITE (single outcome).
     try {
-      await api("/api/apply", {});
+      const appliedResult = await api("/api/apply", {});
+      console.log("apply verification:", appliedResult.verification,
+                  "written:", appliedResult.written);
       writeSucceeded = true;
     } catch (e) {
       console.error(e);
@@ -871,8 +909,8 @@ async function apply() {
     }
     // 8. RESULTS by independent outcomes.
     if (writeSucceeded && reconcileOk) {
-      // Reconstruct applied from /api/state.profile ONLY when dirty === false
-      // (refreshState already did that); retain otherwise.
+      // refreshState() sets applied from the server-provided confirmed
+      // baseline; success requires preview count === 0 (nothing pending).
       writeStatus = (reconPreview && reconPreview.count === 0) ? "success" : "idle";
       if (writeStatus === "success") {
         lastWriteWasRealHid = isRealHid();
@@ -907,8 +945,93 @@ async function apply() {
   }
 }
 
+/* --- Live updates (SSE primary, polling fallback) --------------------- */
+let eventsSource = null;
+let lastGen = 0;
+let syncGen = -1;
+let pollingActive = false;
+let syncPollTimer = null;
+let connPollTimer = null;
+let reconnectTimer = null;
+
+/* Apply a compact server state patch WITHOUT full-page state replacement.
+   applied/confirmed/persisted are strictly server-provided; the WebUI never
+   reconstructs config locally. */
+function applyStatePatch(p) {
+  if (p.catalog) state.catalog = p.catalog;
+  if (p.capabilities) state.capabilities = p.capabilities;
+  if (p.confirmed !== undefined) { state.confirmed = p.confirmed; applied = clone(p.confirmed); }
+  if (p.persisted !== undefined) state.persisted = p.persisted;
+  if (p.profile !== undefined) state.profile = p.profile;
+  if (typeof p.dirty === "boolean") serverDirty = p.dirty;
+  const gen = (p.stateGeneration !== undefined) ? p.stateGeneration : 0;
+  const changed = gen !== lastGen;
+  if (gen !== undefined) lastGen = gen;
+  if (changed) {
+    renderAll();
+    refreshPending();
+  }
+  syncDirty();
+}
+
+/* SSE is the efficient primary channel: one long-lived connection, server
+   pushes compact state patches only on change. No duplicate startup fetch. */
+function connectEvents() {
+  if (eventsSource) return;
+  const es = new EventSource("/api/events");
+  eventsSource = es;
+  es.addEventListener("state", (ev) => {
+    try { applyStatePatch(JSON.parse(ev.data)); }
+    catch (e) { console.error(e); }
+  });
+  es.onerror = () => {
+    es.close();
+    if (eventsSource === es) eventsSource = null;
+    startPollingFallback();
+  };
+}
+
+/* Reconnect fallback: re-arm the original polling functions only while SSE
+   is unavailable; try to restore SSE after a bounded delay. */
+function startPollingFallback() {
+  if (pollingActive) return;
+  pollingActive = true;
+  syncPollTimer = setInterval(watchSync, 1500);
+  connPollTimer = setInterval(refreshConnection, 15000);
+  reconnectTimer = setTimeout(() => {
+    clearInterval(syncPollTimer);
+    clearInterval(connPollTimer);
+    syncPollTimer = connPollTimer = null;
+    pollingActive = false;
+    connectEvents();
+  }, 10000);
+}
+
+/* Original heartbeat (GET-only), used ONLY by the polling fallback. */
+async function watchSync() {
+  const syncNote = $("sync-note");
+  try {
+    const st = await api("/api/sync-status");
+    if (syncNote) syncNote.textContent = st.message ? UI_TEXT.sync.idle : UI_TEXT.sync.error;
+    if (st.generation !== syncGen) {
+      syncGen = st.generation;
+      const fresh = await api("/api/state");
+      state = fresh; serverDirty = fresh.dirty;
+      applied = clone(fresh.confirmed);
+      if (writeStatus === "reconciling") { writeStatus = "idle"; }
+      renderAll();
+      refreshPending();
+    }
+  } catch (e) {
+    console.error(e);
+    if (syncNote) syncNote.textContent = UI_TEXT.sync.error;
+  }
+}
+
 function initActions() {
   $("apply-btn").onclick = apply;
+  initM3Slider("dpi-slider");
+  initM3Slider("debounce", " ms");
   $("discard-btn").onclick = () => mutate(async () => {
     try {
       const j = await api("/api/discard", {});
@@ -978,30 +1101,6 @@ function initActions() {
   };
   window.__updateBeforeUnload = updateBeforeUnload;
   setInterval(updateBeforeUnload, 500);
-
-  /* Background sync heartbeat: GET only; preserves draft + applied. */
-  const syncNote = $("sync-note");
-  let lastGen = -1;
-  const watchSync = async () => {
-    try {
-      const st = await api("/api/sync-status");
-      syncNote.textContent = st.message ? UI_TEXT.sync.idle : UI_TEXT.sync.error;
-      if (st.generation !== lastGen) {
-        lastGen = st.generation;
-        const fresh = await api("/api/state");
-        state = fresh; serverDirty = fresh.dirty;
-        if (writeStatus === "reconciling") { writeStatus = "idle"; }
-        renderAll();
-        refreshPending();
-      }
-    } catch (e) {
-      console.error(e);
-      syncNote.textContent = UI_TEXT.sync.error;
-    }
-  };
-  setInterval(watchSync, 1500);
-  setTimeout(watchSync, 1200);
-  setInterval(refreshConnection, 15000);
 }
 
 /* Theme is client-side only: data-theme on <html> + persisted choice.
@@ -1035,6 +1134,7 @@ async function init() {
   initTheme();
   initActions();
   await refreshState();
+  connectEvents();
   initStatusNote();
   initTechnicalLabels();
   await refreshConnection();

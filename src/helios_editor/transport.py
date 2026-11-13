@@ -24,6 +24,8 @@ class TransportError(RuntimeError):
 class Transport(ABC):
     """Minimal contract the editor needs from a device backend."""
 
+    verification_mode = "simulated"
+
     @abstractmethod
     def read_profile(self) -> ButtonProfile | None:
         """Load the profile currently stored on the device.
@@ -33,12 +35,39 @@ class Transport(ABC):
         """
 
     @abstractmethod
-    def write_profile(self, profile: ButtonProfile) -> None:
-        """Persist a profile to device flash."""
+    def write_profile(self, profile: ButtonProfile, *,
+                      baseline: ButtonProfile | None = None) -> None:
+        """Persist a profile to device flash, optionally with a delta baseline."""
 
     @abstractmethod
     def describe(self) -> str:
         """Human-readable backend identity."""
+
+    def device_status(self) -> dict:
+        """Live connection + battery info; simulated backends report honestly."""
+        return {
+            "connection": "simulated", "online": False,
+            "battery_percent": None, "battery_mv": None,
+            "charging": None, "hidraw": None,
+            "note": "Simulated device; no hardware access.",
+        }
+
+    def capabilities(self) -> dict:
+        """Hardware capability flags for the WebUI.
+
+        ``reportRates`` lists the REPORT_RATE enum values the connected device
+        can use. Simulated/dry-run backends expose every catalog rate; real
+        hardware narrows this from the detected PID (see HIDTransport).
+        """
+        from .catalog import REPORT_RATES
+        return {
+            "reportRates": list(REPORT_RATES.keys()),
+            "rateSource": "catalog",
+        }
+
+    def set_baseline(self, profile: ButtonProfile) -> None:
+        """Align an optional delta-write baseline with confirmed state."""
+        return None
 
 
 class SimulatedTransport(Transport):
@@ -51,7 +80,8 @@ class SimulatedTransport(Transport):
     def read_profile(self) -> ButtonProfile:
         return ButtonProfile.from_dict(self._profile.to_dict())
 
-    def write_profile(self, profile: ButtonProfile) -> None:
+    def write_profile(self, profile: ButtonProfile, *,
+                      baseline: ButtonProfile | None = None) -> None:
         errors = profile.validate()
         if errors:
             raise TransportError("invalid profile: " + "; ".join(errors))

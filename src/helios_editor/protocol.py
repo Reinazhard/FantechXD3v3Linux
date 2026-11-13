@@ -71,6 +71,9 @@ app starts up / reads config.
 
 from __future__ import annotations
 
+from .model import DPI_MIN, DPI_MAX, DPI_STEP
+from .catalog import REPORT_RATES
+
 REPORT_ID = 0x08
 REPORT_LEN = 17
 BM_REQUEST_TYPE = 0x21
@@ -105,12 +108,6 @@ ADDR_DPI_COLOR_BASE = 0x2C
 # 6 physical button KeyFunMaps: 0x60 + 4*i (type,p1,p2,checksum).
 ADDR_KEYMAP_BASE = 0x60
 KEYMAP_STRIDE = 4
-# Backwards-compatible aliases (the ACTIVE stage register is 0x0c + 4*idx).
-ADDR_CURRENT_DPI = 0x0C
-ADDR_DPI_STAGES = 0x10
-ADDR_KEYMAP_1 = 0x60
-ADDR_KEYMAP_2 = 0x64
-ADDR_KEYMAP_3 = 0x68
 ADDR_DEBOUNCE = 0xA9
 ADDR_MOTION_SYNC = 0xAB
 ADDR_ANGLE_SNAPPING = 0xAF
@@ -119,10 +116,6 @@ ADDR_PEAK_PERFORMANCE = 0xB5
 ADDR_PEAK_TIMEOUT = 0xB7
 ADDR_SENSOR_MODE = 0xB9
 
-# REPORT_RATE enum -> on-wire value (poll-125/250/500/1000 captures).
-REPORT_RATE_TO_WIRE = {8: 125, 4: 250, 2: 500, 1: 1000}
-REPORT_RATE_FROM_WIRE = {v: k for k, v in REPORT_RATE_TO_WIRE.items()}
-DPI_MIN, DPI_MAX, DPI_STEP = 50, 26000, 50
 CONFIRMED_DPI_MAX = 3200   # highest DPI whose register encoding is capture-proven
 
 
@@ -251,7 +244,7 @@ def report_rate_value(rate_hz: int) -> bytes:
     R_250=4 -> 0x04, R_500=2 -> 0x02, R_1000=1 -> 0x01). The model stores
     the enum, so this is an identity check, not a Hz conversion.
     """
-    if rate_hz not in REPORT_RATE_TO_WIRE:
+    if rate_hz not in REPORT_RATES:
         raise ValueError(f"unsupported REPORT_RATE enum {rate_hz}")
     return bytes((rate_hz & 0xFF,))
 

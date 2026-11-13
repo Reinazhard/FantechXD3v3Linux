@@ -30,6 +30,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 import json
 
+from .catalog import REPORT_RATES
+
 
 @dataclass(frozen=True)
 class Hotspot:
@@ -84,6 +86,7 @@ LED_PALETTE: tuple[tuple[int, int, int], ...] = (
 DEFAULT_DEBOUNCE_MS = 8
 DEFAULT_REPORT_RATE = 1  # 1000 Hz (REPORT_RATE.R_1000)
 LOD_CHOICES = {1: "1 mm", 2: "2 mm"}
+SENSOR_MODES: dict[int, str] = {0: "LP", 1: "HP"}
 
 # BatteryParam voltage curve from Config.ini (mV at 0%, then 5% steps-ish).
 BATTERY_VOLTAGE_CURVE: tuple[int, ...] = (
@@ -208,13 +211,13 @@ class ButtonProfile:
         for c in colors:
             if any(not (0 <= v <= 255) for v in c):
                 errors.append("LED color channel out of 0..255")
-        if s.report_rate not in (1, 2, 4, 8, 16, 32):
+        if s.report_rate not in REPORT_RATES:
             errors.append("report_rate: invalid REPORT_RATE enum")
         if s.lod_mm not in LOD_CHOICES:
             errors.append("lod_mm: must be 1 or 2")
         if not (0 <= s.debounce_ms <= 20):
             errors.append("debounce_ms: must be 0..20")
-        if s.sensor_mode not in (0, 1):
+        if s.sensor_mode not in SENSOR_MODES:
             errors.append("sensor_mode: must be 0 (LP) or 1 (HP)")
         return errors
 

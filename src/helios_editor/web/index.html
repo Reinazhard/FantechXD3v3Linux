@@ -38,7 +38,6 @@
       <span id="link-dot" class="dot" hidden></span>
       <span id="device-label" class="dim" hidden></span>
       <span id="backend" class="badge">Connecting…</span>
-      <span id="pill-conn" class="pill">Wireless</span>
       <span id="pill-batt" class="pill">Battery unavailable</span>
     </header>
     <nav id="tabs" role="tablist" aria-label="Editor sections">
@@ -143,17 +142,19 @@
         <h1 class="view-title">Sensor</h1>
         <p class="view-helper">Tune sensitivity and how the sensor tracks movement.</p>
         <section class="sensor-hero">
-          <div class="eyebrow">Active DPI stage</div>
+          <div class="eyebrow">DPI stage</div>
           <div id="stage-tabs" class="stage-tabs"></div>
           <div class="dpi-slider-head">
             <span id="dpi-value" class="dpi-value">1600</span><span class="dim">DPI</span>
           </div>
           <label class="sr-only" for="dpi-slider">DPI value</label>
-          <input id="dpi-slider" type="range" min="50" max="26000" step="50" value="1600">
+          <div class="m3-slider" id="dpi-slider-wrap">
+            <input id="dpi-slider" class="m3-slider__input" type="range" value="1600">
+            <span class="m3-slider__tooltip" id="dpi-slider-tooltip">1600</span>
+          </div>
           <label class="sr-only" for="dpi-numeric">DPI numeric value</label>
           <div class="dpi-numeric-row">
-            <input id="dpi-numeric" class="text-input" type="number" min="50" max="26000" step="50" inputmode="numeric">
-            <button id="dpi-save" class="tonal">Save to stage</button>
+            <input id="dpi-numeric" class="text-input" type="number" inputmode="numeric">
           </div>
           <p id="dpi-numeric-error" class="warn" hidden></p>
           <span id="dpi-saved" class="dim" hidden>saved locally · Apply to write to device</span>
@@ -180,7 +181,10 @@
               <span>Click debounce <span id="debounce-val" class="value-badge">8 ms</span></span>
             </div>
             <label class="sr-only" for="debounce">Click debounce</label>
-            <input id="debounce" type="range" min="0" max="20" step="1" value="8">
+            <div class="m3-slider" id="debounce-wrap">
+              <input id="debounce" class="m3-slider__input" type="range" min="0" max="20" step="1" value="8">
+              <span class="m3-slider__tooltip" id="debounce-tooltip">8 ms</span>
+            </div>
             <div class="scale"><span>0 ms</span><span>20 ms</span></div>
             <p class="warn" id="debounce-warn" hidden>Low values may cause double clicks.</p>
           </section>

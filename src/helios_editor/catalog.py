@@ -12,7 +12,6 @@ value split into two bytes (low, high).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -46,6 +45,22 @@ KC_REPORT_RATE = 0x07
 KC_LIGHT = 0x08
 KC_CONFIG = 0x09
 KC_DPI_LOCK = 0x0A
+
+# Human-readable grouping of KEY_CLASS values for the WebUI filter. Values
+# mirror the exact labels previously hardcoded in app.js categoryOf().
+KEY_FUNCTION_CATEGORIES: dict[int, str] = {
+    0x00: "Disabled",
+    0x01: "Mouse functions",
+    0x02: "Special functions",
+    0x0A: "Special functions",
+    0x08: "Special functions",
+    0x03: "System functions",
+    0x0B: "System functions",
+    0x05: "Multimedia",
+    0x04: "Keyboard functions",
+    0x06: "Keyboard functions",
+    0x07: "Keyboard functions",
+}
 
 # <KeyFunction> catalog, English.xml lines 227-241. ``value`` is stored in
 # ``param``; ``pull="01"`` means the function is a pull-down (sub-function) list.
@@ -122,36 +137,6 @@ REPORT_RATES: dict[int, str] = {
     32: "4000 Hz",
 }
 
-# DriverLib.UsbCommandID enum (decoded from the .NET Constant table). The
-# editor's "Apply/Save" path uses WriteFlashData (7); ReadFlashData (8) loads it.
-CMD_ENCRYPTION_DATA = 1
-CMD_PC_DRIVER_STATUS = 2
-CMD_DEVICE_ONLINE = 3
-CMD_BATTERY_LEVEL = 4
-CMD_DONGLE_ENTER_PAIR = 5
-CMD_GET_PAIR_STATE = 6
-CMD_WRITE_FLASH_DATA = 7
-CMD_READ_FLASH_DATA = 8
-CMD_CLEAR_SETTING = 9
-CMD_STATUS_CHANGED = 10
-CMD_SET_DEVICE_VIDPID = 11
-CMD_SET_DEVICE_DESCRIPTOR_STRING = 12
-CMD_ENTER_USB_UPDATE_MODE = 13
-CMD_GET_CURRENT_CONFIG = 14
-CMD_SET_CURRENT_CONFIG = 15
-CMD_READ_CID_MID = 16
-CMD_ENTER_MTK_MODE = 17
-CMD_READ_VERSION_ID = 18
-CMD_SET_4K_DONGLE_RGB = 19
-CMD_GET_4K_DONGLE_RGB_VALUE = 20
-CMD_SET_LONG_RANGE_MODE = 21
-CMD_GET_LONG_RANGE_MODE = 22
-CMD_WRITE_KBC_ID_MID = 23
-CMD_READ_KBC_ID_MID = 24
-
-MAX_CMD_LENGTH = 64  # decoded .NET constant; HID feature-report payload bound.
-
-
 def sub_functions_for(kf: KeyFunction) -> list[SubFunction]:
     """Return the sub-function choices for a pull-down key function."""
     if kf.pull != 0x01:
@@ -159,21 +144,6 @@ def sub_functions_for(kf: KeyFunction) -> list[SubFunction]:
     # Scroll Up/Down in XML uses type 0x0B; DPI Switch 0x02; Media 0x05; etc.
     # Pull-down Media Key and Combo Key both use type 0x05: media entries only.
     return [s for s in SUB_FUNCTIONS if s.type == kf.type]
-
-
-def find_key_function(type_: int, param: int) -> Optional[KeyFunction]:
-    for kf in KEY_FUNCTIONS:
-        if kf.type == type_ and (kf.param == param or kf.pull == 0x01):
-            return kf
-    return None
-
-
-def binding_from_selection(type_: int, param1: int, param2: int) -> "Binding":
-    """Build a Binding from catalog type + two param bytes (low, high)."""
-    from .model import Binding
-
-    value = param1 | (param2 << 8)
-    return Binding(type=type_, param1=param1, param2=param2, value=value)
 
 
 def selection_to_bytes(type_: int, value: int) -> tuple[int, int]:

@@ -1,16 +1,20 @@
 """Real hardware transport for the Helios II XD3v3.
 
-Uses the Linux hidraw ioctl interface (HIDIOCSFEATURE / HIDIOCGFEATURE) to
-send the confirmed 17-byte feature reports from :mod:`protocol`. No kernel
-module, no libusb root permission: the device's config interface is exposed as
-``/dev/hidrawN`` owned by ``plugdev`` (see ``udev/50-helios-ii.rules``).
+Uses the Linux hidraw ioctl interface (HIDIOCSFEATURE) to send confirmed
+17-byte feature reports from :mod:`protocol`. No kernel module, no libusb, no
+root permission: the device's config interface is exposed as ``/dev/hidrawN``
+owned by ``plugdev`` (see ``udev/50-helios-ii.rules``). The device is
+``3554:f535`` (Compx Fantech Helios II); interface 1 has a 17-byte interrupt-IN
+endpoint 0x82, matching the USBPcap captures exactly. Read-only operations
+(status polls, flash reads) are safe. Writes use only confirmed
+``WriteFlashData`` records; no firmware/bootloader commands are sent.
 
-The device is ``3554:f535`` (Compx Fantech Helios II); its interface 1 has an
-interrupt-IN endpoint 0x82 with 17-byte max packet, matching the USBPcap
-captures exactly.
+All device I/O is serialized under ``self._io_lock`` (an RLock so high-level
+wrappers can call low-level primitives). The lock order in the whole app is::
 
-Read-only operations (status polls, flash reads) are safe. Writes use only the
-confirmed ``WriteFlashData`` records; no firmware/bootloader commands are sent.
+    EditorState._sync_lock -> EditorState._state_lock -> HIDTransport._io_lock
+
+Never acquire these in the reverse order.
 """
 
 from __future__ import annotations
@@ -25,7 +29,8 @@ import time
 from dataclasses import dataclass
 
 from . import protocol as P
-from .model import ButtonProfile
+from .model import ButtonProfile, MAX_DPI_STAGES
+from .catalog import REPORT_RATES
 from .transport import Transport, TransportError
 
 VID = 0x3554
@@ -41,6 +46,14 @@ SUPPORTED_PIDS = (0xF535, 0xF536, 0xF537)   # dongle, wired USB-C, 4K dongle
 # for this model's dongle). Treated as opaque constants, not invented.
 UNLOCK_PASSWORDS = (b"\x28\x43\x48\x69", b"\x35\x35\x69\x66")
 
+# Bounded I/O timeouts (seconds). Every transaction has a finite worst case;
+# a missing/late echo can never hang the request thread forever.
+PUMP_AFTER_SEND = 0.08
+PUMP_AFTER_POLL = 0.10
+PUMP_DRAIN = 0.2
+ECHO_ATTEMPTS = 6
+READBACK_TIMEOUT = 0.2
+
 _IOC_TYPESHIFT, _IOC_SIZESHIFT, _IOC_DIRSHIFT = 8, 16, 30
 _IOC_WRITE, _IOC_READ = 1, 2
 
@@ -51,7 +64,42 @@ def _ioc(direction: int, typ: str, nr: int, size: int) -> int:
 
 
 HIDIOCSFEATURE = _ioc(_IOC_WRITE | _IOC_READ, 'H', 0x06, P.REPORT_LEN)
-HIDIOCGFEATURE = _ioc(_IOC_WRITE | _IOC_READ, 'H', 0x07, P.REPORT_LEN)
+
+
+class HIDIO:
+    """The real hidraw syscall boundary.
+
+    Injected into :class:`HIDTransport` so tests can drive ACK/timeout/reconnect
+    with a scripted backend without a physical device. Production code leaves
+    ``io=None`` and the transport constructs this default. This is a genuine
+    I/O boundary, not debug scaffolding.
+    """
+
+    def open(self, path: str) -> int:
+        return os.open(path, os.O_RDWR | os.O_NONBLOCK)
+
+    def feature(self, fd: int, frame: bytes) -> None:
+        fcntl.ioctl(fd, HIDIOCSFEATURE, array.array('B', frame), True)
+
+    def read(self, fd: int, timeout: float) -> list[bytes]:
+        """Read EVERY pending 17-byte interrupt-IN report within ``timeout``."""
+        out: list[bytes] = []
+        end = time.time() + timeout
+        while time.time() < end:
+            r, _, _ = select.select([fd], [], [],
+                                    min(0.05, max(0, end - time.time())))
+            if not r:
+                continue
+            try:
+                d = os.read(fd, P.REPORT_LEN)
+            except OSError:
+                break
+            if len(d) >= P.REPORT_LEN:
+                out.append(bytes(d[:P.REPORT_LEN]))
+        return out
+
+    def close(self, fd: int) -> None:
+        os.close(fd)
 
 
 def find_config_hidraw() -> str | None:
@@ -111,84 +159,201 @@ class HIDTransport(Transport):
     dry_run:
         When True, build and return report bytes but never perform ioctl.
         Used by fixture tests and by cautious users.
+    io:
+        Optional :class:`HIDIO` backend for tests. Ignored (all calls skipped)
+        when ``dry_run`` is True.
     """
 
-    def __init__(self, device_path: str | None = None, dry_run: bool = False) -> None:
+    verification_mode = "readback"
+
+    def __init__(self, device_path: str | None = None, dry_run: bool = False,
+                 io: HIDIO | None = None) -> None:
         self.device_path = device_path
         self.dry_run = dry_run
+        self._io = io
         self._fd: int | None = None
         self.last_reports: list[bytes] = []
+        self.last_written_records: list = []
         self._unlocked = False
         self._pending: list[bytes] = []   # device reports not yet consumed
         self._device_state: object | None = None  # last known/applied profile
-        self._io_lock = threading.RLock()   # serialize all device I/O
+        self._io_lock = threading.RLock()   # serialize ALL device I/O
+        self._conn_generation = 0
+        if dry_run:
+            self.verification_mode = "framing-only"
 
     # --- low level ---
 
     def _open(self) -> int:
+        # A cached fd may point at a device that was unplugged. Re-detect on
+        # the real backend when the cached path no longer exists.
         if self._fd is not None:
-            return self._fd
-        path = self.device_path or find_config_hidraw()
+            if self._io is None and self.device_path and \
+                    not os.path.exists(self.device_path):
+                self._reset_connection()
+            else:
+                return self._fd
+        path = self.device_path or ("/dev/fake" if self._io is not None
+                                    else find_config_hidraw())
         if not path:
             raise TransportError(
                 "no XD3v3 config hidraw node found; is the device connected "
                 "and is the udev rule installed?"
             )
+        io = self._io if self._io is not None else HIDIO()
         try:
-            self._fd = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+            self._fd = io.open(path)
         except OSError as exc:
             raise TransportError(f"cannot open {path}: {exc.strerror}") from exc
         self.device_path = path
         return self._fd
 
-    def _send(self, frame: bytes) -> bytes | None:
-        """Send one report; return the device's 17-byte reply when available.
+    def _io_backend(self) -> HIDIO:
+        return self._io if self._io is not None else HIDIO()
 
-        All incoming reports are pumped into ``self._pending``; the echo for
-        ``frame`` is returned when present. Reading MORE than one report per
-        call matters: the device queues write echoes behind poll echoes.
-        """
-        if len(frame) != P.REPORT_LEN:
-            raise ValueError(f"report must be {P.REPORT_LEN} bytes")
-        self.last_reports.append(frame)
-        if self.dry_run:
-            return None
-        fd = self._open()
-        try:
-            fcntl.ioctl(fd, HIDIOCSFEATURE, array.array('B', frame), True)
-        except OSError as exc:
-            raise TransportError(f"HIDIOCSFEATURE failed: {exc.strerror}") from exc
-        self._pump(fd, timeout=0.08)
-        return self._take(frame[1], (frame[3] << 8) | frame[4])
-
-    @staticmethod
-    def _read_all(fd: int, timeout: float) -> list[bytes]:
-        """Read EVERY pending 17-byte interrupt-IN report within ``timeout``."""
-        out: list[bytes] = []
-        end = time.time() + timeout
-        while time.time() < end:
-            r, _, _ = select.select([fd], [], [], min(0.05, max(0, end - time.time())))
-            if not r:
-                continue
-            try:
-                d = os.read(fd, P.REPORT_LEN)
-            except OSError:
-                break
-            if len(d) >= P.REPORT_LEN:
-                out.append(bytes(d[:P.REPORT_LEN]))
-        return out
-
-    def _pump(self, fd: int, timeout: float = 0.2) -> None:
-        for r in self._read_all(fd, timeout):
+    def _pump(self, fd: int, timeout: float = PUMP_DRAIN) -> None:
+        for r in self._io_backend().read(fd, timeout):
             self._pending.append(r)
 
     def _take(self, command: int, address: int | None = None) -> bytes | None:
-        """Pop and return the first pending report matching ``command``."""
+        """Pop and return the first pending report matching ``command``.
+
+        Multiple echoes per poll are capture-confirmed: the device queues write
+        echoes behind cmd-3 poll echoes, so we scan the whole queue, not just
+        the head. See test_pending_queue_handles_multiple_echoes.
+        """
         for i, r in enumerate(self._pending):
             if r[1] == command and (address is None or
                                     ((r[3] << 8) | r[4]) == address):
                 return self._pending.pop(i)
         return None
+
+    def _purge_stale(self, command: int, address: int) -> None:
+        """Drop queued echoes for (command, address) left by a prior op.
+
+        The confirmed wire protocol carries no sequence id, so a stale echo
+        with the same tuple could otherwise satisfy a later transaction. Purge
+        BEFORE send; this changes no wire bytes.
+        """
+        self._pending = [r for r in self._pending
+                         if not (r[1] == command and
+                                 ((r[3] << 8) | r[4]) == address)]
+
+    def _transact(self, frame: bytes, expect_command: int, expect_address: int,
+                  *, verify_frame: bool = False, attempts: int = ECHO_ATTEMPTS,
+                  retry_on_disconnect: bool = True) -> bytes:
+        """Send one report and return its validated echo, serialized.
+
+        Drives bounded poll clocks when the echo is late. Raises TransportError
+        on a missing echo, malformed reply, or device I/O failure. Read/poll
+        requests may be retried once after a reconnect (idempotent); flash
+        writes pass ``retry_on_disconnect=False`` to avoid double-writes.
+        """
+        if self.dry_run:
+            self.last_reports.append(frame)
+            return b""
+        if len(frame) != P.REPORT_LEN:
+            raise ValueError(f"report must be {P.REPORT_LEN} bytes")
+        with self._io_lock:
+            return self._transact_locked(frame, expect_command, expect_address,
+                                         verify_frame=verify_frame,
+                                         attempts=attempts,
+                                         retry_on_disconnect=retry_on_disconnect,
+                                         _retried=False)
+
+    def _transact_locked(self, frame: bytes, expect_command: int,
+                         expect_address: int, *, verify_frame: bool,
+                         attempts: int, retry_on_disconnect: bool,
+                         _retried: bool) -> bytes:
+        self._purge_stale(expect_command, expect_address)
+        self.last_reports.append(frame)
+        fd = self._open()
+        io = self._io_backend()
+        try:
+            io.feature(fd, frame)
+        except OSError as exc:
+            self._reset_connection()
+            if retry_on_disconnect and not _retried:
+                return self._transact_locked(
+                    frame, expect_command, expect_address,
+                    verify_frame=verify_frame, attempts=attempts,
+                    retry_on_disconnect=retry_on_disconnect, _retried=True)
+            raise TransportError(
+                f"device I/O failed (disconnected?): {exc.strerror}") from exc
+
+        def _pump_or_fail(timeout: float) -> None:
+            try:
+                self._pending.extend(io.read(fd, timeout))
+            except OSError as exc:
+                self._reset_connection()
+                raise TransportError(
+                    f"device I/O failed (disconnected?): {exc.strerror}") from exc
+
+        _pump_or_fail(PUMP_AFTER_SEND)
+        echo = self._take(expect_command, expect_address)
+        for _ in range(attempts):
+            if echo is not None:
+                break
+            # Interleave a DeviceOnLine poll so the dongle keeps servicing the
+            # config command; captures require this clock between commands.
+            poll_frame = P.poll(P.CMD_DEVICE_ONLINE)
+            self.last_reports.append(poll_frame)
+            try:
+                io.feature(fd, poll_frame)
+            except OSError as exc:
+                self._reset_connection()
+                if retry_on_disconnect and not _retried:
+                    return self._transact_locked(
+                        frame, expect_command, expect_address,
+                        verify_frame=verify_frame, attempts=attempts,
+                        retry_on_disconnect=retry_on_disconnect, _retried=True)
+                raise TransportError(
+                    f"device I/O failed (disconnected?): {exc.strerror}") from exc
+            _pump_or_fail(PUMP_AFTER_POLL)
+            echo = self._take(expect_command, expect_address)
+
+        if echo is None:
+            # A read/poll may be re-sent once after reconnect; a write must not.
+            if retry_on_disconnect and not _retried:
+                return self._transact_locked(
+                    frame, expect_command, expect_address,
+                    verify_frame=verify_frame, attempts=attempts,
+                    retry_on_disconnect=retry_on_disconnect, _retried=True)
+            raise TransportError(
+                f"device did not echo command 0x{expect_command:02x} "
+                f"(addr 0x{expect_address:04x}) after {attempts} polls - "
+                "mouse link may be down")
+
+        parsed = P.parse_report(echo)
+        if not (parsed["outer_valid"] and parsed["command"] == expect_command
+                and parsed["address"] == expect_address):
+            raise TransportError(
+                f"device reply invalid for command 0x{expect_command:02x} "
+                f"(addr 0x{expect_address:04x})")
+        if verify_frame and echo != frame:
+            raise TransportError(
+                f"device did not echo command 0x{expect_command:02x} verbatim "
+                f"(addr 0x{expect_address:04x})")
+        return echo
+
+    def _send(self, frame: bytes) -> bytes | None:
+        """Send one report; return its echo when available, else None.
+
+        ``_send`` never drives a bounded poll campaign (single attempt), so
+        callers such as unlock/device_status keep their original "best effort"
+        contract. Framing-only dry_run returns None.
+        """
+        if self.dry_run:
+            if len(frame) != P.REPORT_LEN:
+                raise ValueError(f"report must be {P.REPORT_LEN} bytes")
+            self.last_reports.append(frame)
+            return None
+        try:
+            return self._transact(frame, frame[1],
+                                  (frame[3] << 8) | frame[4], attempts=1,
+                                  retry_on_disconnect=False)
+        except TransportError:
+            return None
 
     def clock(self) -> bytes | None:
         """Send a cmd-3 DeviceOnLine poll; pump all replies into the queue.
@@ -197,22 +362,45 @@ class HIDTransport(Transport):
         device; our synchronous transport must do the same between config
         commands or the firmware drops them.
         """
-        if self.dry_run:
-            self.last_reports.append(P.poll(P.CMD_DEVICE_ONLINE))
-            return None
-        fd = self._open()
-        try:
-            fcntl.ioctl(fd, HIDIOCSFEATURE,
-                        array.array('B', P.poll(P.CMD_DEVICE_ONLINE)), True)
-        except OSError as exc:
-            raise TransportError(f"poll failed: {exc.strerror}") from exc
-        self._pump(fd, timeout=0.10)
-        return self._take(P.CMD_DEVICE_ONLINE)
+        with self._io_lock:
+            frame = P.poll(P.CMD_DEVICE_ONLINE)
+            if self.dry_run:
+                self.last_reports.append(frame)
+                return None
+            fd = self._open()
+            io = self._io_backend()
+            try:
+                io.feature(fd, frame)
+            except OSError as exc:
+                self._reset_connection()
+                raise TransportError(
+                    f"device I/O failed (disconnected?): {exc.strerror}") from exc
+            self.last_reports.append(frame)
+            try:
+                self._pending.extend(io.read(fd, PUMP_AFTER_POLL))
+            except OSError as exc:
+                self._reset_connection()
+                raise TransportError(
+                    f"device I/O failed (disconnected?): {exc.strerror}") from exc
+            return self._take(P.CMD_DEVICE_ONLINE)
+
+    def _reset_connection(self) -> None:
+        """Drop all cached connection state after a disconnect/replug."""
+        if self._fd is not None:
+            try:
+                self._io_backend().close(self._fd)
+            except OSError:
+                pass
+        self._fd = None
+        self._unlocked = False
+        self._pending.clear()
+        self.device_path = None
+        self._conn_generation += 1
+        self._device_state = None
 
     def close(self) -> None:
-        if self._fd is not None:
-            os.close(self._fd)
-            self._fd = None
+        with self._io_lock:
+            self._reset_connection()
 
     def __enter__(self) -> "HIDTransport":
         return self
@@ -224,12 +412,12 @@ class HIDTransport(Transport):
 
     def poll_status(self) -> DeviceStatus:
         """Send cmd 3 (DeviceOnLine) and decode the reply."""
-        reply = self.clock()
-        if reply is None:
-            raise TransportError("no response to DeviceOnLine poll")
-        parsed = P.parse_report(reply)
-        online = bool(parsed["command"] == P.CMD_DEVICE_ONLINE and len(reply) > 6)
-        return DeviceStatus(online=online, raw=reply)
+        with self._io_lock:
+            reply = self.clock()
+            if reply is None:
+                raise TransportError("no response to DeviceOnLine poll")
+            online = bool(reply[6]) if len(reply) > 6 else False
+            return DeviceStatus(online=online, raw=reply)
 
     def device_status(self) -> dict:
         """Return live connection + battery info for the UI.
@@ -253,29 +441,15 @@ class HIDTransport(Transport):
         if self.dry_run:
             info["connection"] = "dry run (no device access)"
             return info
-        # Infer the active PID from the hidraw node's uevent.
-        path = self.device_path or find_config_hidraw()
-        if path:
-            try:
-                uev = open(os.path.join("/sys/class/hidraw",
-                                        os.path.basename(path), "device", "uevent")).read()
-                for tok in uev.split():
-                    if tok.startswith("HID_ID="):
-                        pid = int(tok.split(":")[-1], 16)
-                        info["pid"] = pid
-                        info["connection"] = P.describe_pid(pid)
-            except OSError:
-                pass
-        if info["pid"] is None:
-            info["pid"] = PID
-            info["connection"] = P.describe_pid(PID)
-        # Bluetooth has no vendor USB config interface: it can never be
-        # detected from this process. Say so instead of guessing.
+        # Infer the active PID from the hidraw node's uevent (single source).
+        pid = self._detected_pid()
+        info["pid"] = pid if pid is not None else PID
+        info["connection"] = P.describe_pid(info["pid"])
         info["note"] = ("Bluetooth mode is not detectable here: it uses the "
                         "host BT stack and exposes no vendor HID config interface.")
         try:
             s = self.poll_status()
-            info["online"] = bool(s.raw[6]) if len(s.raw) > 6 else False
+            info["online"] = s.online
             self.unlock(verify=False)
             batt_echo = self._send(P.poll(P.CMD_BATTERY_LEVEL))
             # _send already pumped the queue; drive a few polls in case the
@@ -284,12 +458,15 @@ class HIDTransport(Transport):
                 if batt_echo is not None or self._take(P.CMD_BATTERY_LEVEL) is not None:
                     break
                 self.clock()
-            all_replies = ([batt_echo] if batt_echo else []) + list(self._pending)
-            for r in all_replies:
-                if r[1] == P.CMD_BATTERY_LEVEL:
+            candidates = ([batt_echo] if batt_echo else []) + list(self._pending)
+            # Consume the battery echo so it cannot leak into a later
+            # transaction with the same (command, address) tuple.
+            for r in candidates:
+                if r and r[1] == P.CMD_BATTERY_LEVEL:
                     dec = P.decode_battery(r)
                     info["battery_percent"] = dec["percent"]
                     info["battery_mv"] = dec["voltage_mv"]
+                    self._take(P.CMD_BATTERY_LEVEL)
                     break
         except TransportError:
             pass
@@ -306,31 +483,35 @@ class HIDTransport(Transport):
             EncryptionData(pass2) -> PCDriverStatus(1) -> DeviceOnLine
         Writes do not need this; reads (cmd 8) are ignored without it.
         """
-        if self._unlocked:
-            return
-        for word in UNLOCK_PASSWORDS:
-            self._send(P.raw_frame(P.CMD_ENCRYPTION_DATA, word, length=8))
-            self._send(P.raw_frame(P.CMD_PC_DRIVER_STATUS, b"\x01"))
-            self.clock()
-        self._unlocked = True
-        if verify:
-            if self.dry_run:
+        with self._io_lock:
+            if self._unlocked:
                 return
-            # A read request must now be echoed; otherwise the unlock failed.
-            self._send(P.read_request(P.ADDR_REPORT_RATE, 10))
-            self.clock()
-            echoes = self._drain_all(0.2)
-            if not any(r[1] == P.CMD_READ_FLASH_DATA for r in echoes):
-                raise TransportError("startup unlock did not enable flash reads")
+            for word in UNLOCK_PASSWORDS:
+                self._send(P.raw_frame(P.CMD_ENCRYPTION_DATA, word, length=8))
+                self._send(P.raw_frame(P.CMD_PC_DRIVER_STATUS, b"\x01"))
+                self.clock()
+            self._unlocked = True
+            if verify and not self.dry_run:
+                # A read request must now be echoed; otherwise the unlock failed.
+                self._send(P.read_request(P.ADDR_REPORT_RATE, 10))
+                self.clock()
+                echoes = self._drain_all(PUMP_DRAIN)
+                if not any(r[1] == P.CMD_READ_FLASH_DATA for r in echoes):
+                    raise TransportError("startup unlock did not enable flash reads")
 
     def read_flash(self, address: int, length: int = 10) -> bytes:
-        """Request a flash window (cmd 8) and return the reply record."""
-        reply = self._send(P.read_request(address, length))
-        if self.dry_run:
-            return bytes(length)
-        if reply is None or reply[1] != P.CMD_READ_FLASH_DATA:
-            reply = self._await_echo(P.CMD_READ_FLASH_DATA, address)
-        return reply[6:6 + length]
+        """Request a flash window (cmd 8) and return the reply record.
+
+        The reply's command, address and checksums are validated by
+        ``_transact`` before its data bytes are trusted.
+        """
+        with self._io_lock:
+            frame = P.read_request(address, length)
+            if self.dry_run:
+                self.last_reports.append(frame)
+                return bytes(length)
+            echo = self._transact(frame, P.CMD_READ_FLASH_DATA, address)
+            return echo[6:6 + length]
 
     def read_active_dpi(self) -> int | None:
         """Read ONLY the active DPI stage index (flash 0x04).
@@ -348,55 +529,38 @@ class HIDTransport(Transport):
     def _read_active_dpi_locked(self) -> int | None:
         try:
             self.unlock(verify=False)
-            # Drop any stale cmd-8 replies left in the echo queue from an
-            # earlier full read; otherwise a background poll can return an
-            # old active-DPI value and miss a hardware button cycle.
-            self._pending = [r for r in self._pending
-                             if r[1] != P.CMD_READ_FLASH_DATA]
+            # _transact purges stale cmd-8 echoes before each read, so a
+            # background poll cannot return an old active-DPI value.
             rec = self.read_flash(P.ADDR_ACTIVE_DPI_INDEX, 2)
             idx = rec[0]
-            if 0 <= idx < 4:   # MAX_DPI_STAGES
+            if 0 <= idx < MAX_DPI_STAGES:
                 return idx
         except (TransportError, IndexError):
             pass
         return None
 
     def write_flash(self, address: int, values: bytes) -> None:
-        """Write one confirmed flash record (cmd 7), then verify its echo."""
-        frame = P.write_record(address, values)
-        echo = self._send(frame)
-        if self.dry_run:
-            return
-        if echo is None or (echo[1] != P.CMD_WRITE_FLASH_DATA):
-            echo = self._await_echo(P.CMD_WRITE_FLASH_DATA, address)
-        if echo != frame:
-            raise TransportError(
-                f"WriteFlashData(0x{address:04x}) not acknowledged by device; "
-                "is the mouse awake and connected to the dongle?"
-            )
+        """Write one confirmed flash record (cmd 7), then verify its echo.
 
-    def _await_echo(self, command: int, address: int, attempts: int = 6) -> bytes:
-        """Drive the poll clock until the device echoes ``command``."""
-        for _ in range(attempts):
-            found = self._take(command, address)
-            if found is not None:
-                return found
-            self.clock()   # pumps all queued reports into self._pending
-            found = self._take(command, address)
-            if found is not None:
-                return found
-        raise TransportError(
-            f"device did not echo command 0x{command:02x} (addr 0x{address:04x}) "
-            f"after {attempts} polls - mouse link may be down"
-        )
+        Flash writes are NOT auto-retried after a disconnect: resending the
+        same record risks a double-write. A failure propagates to /api/apply.
+        """
+        with self._io_lock:
+            frame = P.write_record(address, values)
+            if self.dry_run:
+                self.last_reports.append(frame)
+                return
+            self._transact(frame, P.CMD_WRITE_FLASH_DATA, address,
+                           verify_frame=True, retry_on_disconnect=False)
 
-    def _drain_all(self, timeout: float = 0.3) -> list[bytes]:
+    def _drain_all(self, timeout: float = PUMP_DRAIN) -> list[bytes]:
         """Pump and return all currently pending reports (queue is drained)."""
-        if not self.dry_run:
-            self._pump(self._open(), timeout)
-        out = list(self._pending)
-        self._pending.clear()
-        return out
+        with self._io_lock:
+            if not self.dry_run:
+                self._pump(self._open(), timeout)
+            out = list(self._pending)
+            self._pending.clear()
+            return out
 
     # --- Transport interface (whole-profile apply) ---
 
@@ -421,13 +585,12 @@ class HIDTransport(Transport):
             self.unlock()
         except TransportError:
             # Unlock failed (mouse asleep / link down). Do NOT cache defaults
-            # as the device state and do NOT return a fake profile: the caller
-            # must keep its previous state. Leave _device_state as-is.
+            # as the device state and do NOT return a fake profile.
             return None
-        from .model import HOTSPOTS, MAX_DPI_STAGES, Binding
+        from .model import HOTSPOTS, Binding
         try:
             rr = self.read_flash(P.ADDR_REPORT_RATE, 2)[0]
-            if rr in P.REPORT_RATE_TO_WIRE:
+            if rr in REPORT_RATES:
                 s.report_rate = rr
         except (TransportError, IndexError):
             pass
@@ -472,7 +635,14 @@ class HIDTransport(Transport):
             pass
         self._device_state = profile.to_dict()
         return profile
-    def write_profile(self, profile: ButtonProfile) -> None:
+
+    def set_baseline(self, profile: ButtonProfile) -> None:
+        """Align the delta-write baseline with server-confirmed state."""
+        with self._io_lock:
+            self._device_state = profile.to_dict()
+
+    def write_profile(self, profile: ButtonProfile, *,
+                      baseline: ButtonProfile | None = None) -> None:
         """Write ONLY the records that changed since the last known device state.
 
         Sending all 23 records on every Apply caused extreme mouse lag (each
@@ -480,39 +650,101 @@ class HIDTransport(Transport):
         single DPI edit writes one record. On the first Apply with no baseline
         (e.g. a cold process) we fall back to a full write, which is still
         bounded and only happens once per session.
+
+        On the real (non-dry_run) path, every written record is read back and
+        compared; a mismatch raises TransportError so Apply never reports a
+        false success. A partial failure discards the stale delta baseline.
         """
         with self._io_lock:
-            return self._write_profile_locked(profile)
+            self._write_profile_locked(profile, baseline=baseline)
 
-    def _write_profile_locked(self, profile: ButtonProfile) -> None:
+    def _write_profile_locked(self, profile: ButtonProfile,
+                              baseline: ButtonProfile | None) -> None:
         errors = profile.validate()
         if errors:
             raise TransportError("invalid profile: " + "; ".join(errors))
+
         # A real device needs a known baseline for delta writes. Without one
         # we would full-write 23 records (the lag bug). Try one read; if the
         # device is unreachable, fail fast with an actionable message.
-        if self._device_state is None and not self.dry_run:
+        if baseline is None and self._device_state is None and not self.dry_run:
             self.read_profile()
-        if self._device_state is None and not self.dry_run:
+        if baseline is None and self._device_state is None and not self.dry_run:
             raise TransportError(
                 "cannot read device state (mouse asleep or link down); wake the "
                 "mouse and retry Apply. No writes were sent.")
-        baseline = (ButtonProfile.from_dict(self._device_state)
-                    if self._device_state else None)
-        records = (P.changed_records(baseline, profile) if baseline
+
+        effective_baseline = baseline
+        if effective_baseline is None and self._device_state:
+            effective_baseline = ButtonProfile.from_dict(self._device_state)
+        records = (P.changed_records(effective_baseline, profile)
+                   if effective_baseline is not None
                    else P.profile_to_records(profile))
         self.last_written_records = [(a, v, l) for a, v, l in records]
         if not records:
             return  # nothing to do; no device churn at all
+
         # The poll clock plus the startup unlock keeps the dongle servicing
         # config commands; without it writes are silently dropped.
-        self.unlock(verify=False)
-        for addr, vals, _label in records:
-            self.write_flash(addr, vals)
-        # PCDriverStatus after writes, as observed in dpi-0400 / click-debounce
-        self._send(P.raw_frame(P.CMD_PC_DRIVER_STATUS, b"\x01"))
-        self._device_state = profile.to_dict()
+        try:
+            self.unlock(verify=False)
+            for addr, vals, _label in records:
+                self.write_flash(addr, vals)
+            # PCDriverStatus after writes, as observed in dpi-0400 /
+            # click-debounce captures. This is the LAST frame (golden test).
+            self._send(P.raw_frame(P.CMD_PC_DRIVER_STATUS, b"\x01"))
+            if not self.dry_run:
+                for addr, vals, _label in records:
+                    got = self.read_flash(addr, len(vals) + 1)
+                    if got[:len(vals)] != vals:
+                        raise TransportError(
+                            f"read-back mismatch at 0x{addr:04x}: wrote "
+                            f"{vals.hex()}, read {got[:len(vals)].hex()}")
+            self._device_state = profile.to_dict()
+        except TransportError:
+            # A partial write leaves unknown device state; force a fresh
+            # baseline read on the next Apply. The server keeps the draft.
+            self._device_state = None
+            raise
 
     def describe(self) -> str:
         loc = self.device_path or "auto-detect"
         return f"HIDTransport(device={loc}{', dry_run' if self.dry_run else ''})"
+
+    def _detected_pid(self) -> int | None:
+        """Read the connected config interface's PID from sysfs uevent."""
+        path = self.device_path or find_config_hidraw()
+        if path:
+            try:
+                uev = open(os.path.join("/sys/class/hidraw",
+                                        os.path.basename(path), "device", "uevent")).read()
+                for tok in uev.split():
+                    if tok.startswith("HID_ID="):
+                        return int(tok.split(":")[-1], 16)
+            except (OSError, ValueError):
+                pass
+        return None
+
+    def capabilities(self) -> dict:
+        """Narrow supported polling rates from the detected dongle PID.
+
+        [INFERENCE, not capture-confirmed] The 4K dongle (0xF537) is the only
+        receiver known to expose 2000/4000 Hz. The standard 2.4 GHz dongle
+        (0xF535) and wired USB-C (0xF536) cap at 1000 Hz. Firmware can differ
+        independently of the receiver, so a 4K dongle does not GUARANTEE 4K;
+        we simply expose the rates the receiver class can carry. When no device
+        is detected we fail open to the full catalog set rather than hiding
+        controls we cannot prove unsupported.
+        """
+        base = super().capabilities()
+        pid = self._detected_pid()
+        if pid is None:
+            return base
+        if pid == 0xF537:   # 4K dongle
+            return {"reportRates": base["reportRates"], "rateSource": "pid-4k"}
+        if pid in SUPPORTED_PIDS:   # standard dongle / wired: <= 1000 Hz
+            return {
+                "reportRates": [r for r in base["reportRates"] if r in (1, 2, 4, 8)],
+                "rateSource": "pid-1k",
+            }
+        return base
